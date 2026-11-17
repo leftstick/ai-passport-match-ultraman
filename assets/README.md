@@ -17,6 +17,33 @@ Store reusable font files and generated font sources in `fonts/`.
 - Check Flash and internal-RAM impact before adding a font; the ESP32-C3 has no PSRAM.
 - Do not commit fonts whose license does not permit redistribution.
 
+### Math game subsets
+
+The math game ships four generated LVGL fonts in `main/fonts/`. They are built
+from Source Han Sans SC Regular (Adobe, SIL Open Font License 1.1; the license
+text is in [`fonts/SourceHanSansSC-LICENSE.txt`](fonts/SourceHanSansSC-LICENSE.txt)).
+The 16 MB source OTF is not committed.
+
+| File | Size | Coverage |
+| --- | --- | --- |
+| `main/fonts/app_font_12.c` | 12 px, 4 bpp | Printable ASCII + the UI character inventory |
+| `main/fonts/app_font_14.c` | 14 px, 4 bpp | Printable ASCII + the UI character inventory |
+| `main/fonts/app_font_20.c` | 20 px, 4 bpp | Printable ASCII + the UI character inventory |
+| `main/fonts/app_font_28.c` | 28 px, 4 bpp | Printable ASCII + the UI character inventory |
+
+- Inventory: [`fonts/math_game_chars.txt`](fonts/math_game_chars.txt), generated
+  by `python tools/collect_glyphs.py` from every display string in
+  `main/app/`, `main/core/`, and `main/main.c`. Rerun it before regenerating
+  fonts; the static gate fails when the file is stale.
+- Converter: `lv_font_conv` 1.5.3, run through `npx`, `--bpp 4 --no-compress`.
+- Regenerate with
+  `SOURCE_HAN_SANS=/path/to/SourceHanSansSC-Regular.otf tools/generate_app_fonts.sh`.
+- Source font SHA-256:
+  `f1d8611151880c6c336aabeac4640ef434fa13cbfbf1ffe82d0a71b2a5637256`.
+- `tools/check_font_coverage.py` runs in the static gate and fails when a UI
+  string uses a character that is absent from the inventory or the generated
+  fonts.
+
 ## Images
 
 Store reusable source images and generated display assets in `images/`.
@@ -33,14 +60,34 @@ Store reusable source images and generated display assets in `images/`.
 - Preserve editable sources where licensing permits, and record the source and license.
 - Never commit device QR secrets, credentials, or personal data in images.
 
+### Math game sprites
+
+[`pixel-heroes/`](pixel-heroes/) contains the user-supplied 512 × 512 hero and
+monster artwork (plus `raw/` originals). It is the editable source and is not
+compiled directly. `tools/build_sprites.py` trims each alpha bounding box,
+nearest-neighbour resizes it to 72 × 88 (heroes) or 80 × 80 (monsters), and
+writes RGB565A8 arrays to `main/assets/sprites.c`. Each hero now has eight
+action poses (idle, fight, fly, beam, charge, kick, guard, victory) and each
+monster five (idle, attack, roar, charge, hurt). The battle screen switches to
+the pose that matches the current phase or feedback event, so every state has
+its own reaction instead of a single static image. The 80 descriptors total
+1,528,320 bytes of payload. Those generated tables are what the firmware links;
+do not edit them by hand.
+
 ## Music and sound effects
 
-Store reusable music and sound-effect sources in `music/`.
+Store reusable music and sound-effect sources in `music/`. Application-specific
+cue tables may live in `audio/` when a paired `SOURCES.md` / `SOURCES.zh_CN.md`
+records the source and license.
 
 - Document the source, license, sample rate, bit depth, channels, conversion command, and destination.
 - Prefer 16 kHz, 16-bit mono PCM when it matches the current BSP audio path.
 - Check Flash and internal-RAM cost before embedding audio; stream or chunk long recordings.
 - Do not commit media without redistribution permission.
+
+The math game uses the CC0 Kenney clips documented in
+[`audio/SOURCES.md`](audio/SOURCES.md). `tools/build_sfx.py` trims,
+peak-normalises, fades, and converts them into `main/audio/sfx.c`.
 
 ## Battery profiles
 

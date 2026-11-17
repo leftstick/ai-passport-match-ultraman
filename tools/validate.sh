@@ -20,6 +20,9 @@ run_static_checks() {
     fi
 
     python3 tools/check_repo.py
+    python3 tools/collect_glyphs.py --check
+    python3 tools/check_font_coverage.py
+    python3 tools/check_assets.py
 
     actionlint_bin="${ACTIONLINT_BIN:-}"
     if [[ -z "${actionlint_bin}" ]]; then
@@ -35,6 +38,18 @@ run_static_checks() {
         tests/test_ui_pixel_math.c main/ui_pixel_math.c \
         -o "${test_dir}/test_ui_pixel_math"
     "${test_dir}/test_ui_pixel_math"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain/core \
+        tests/test_math_question.c main/core/math_question.c \
+        -o "${test_dir}/test_math_question"
+    "${test_dir}/test_math_question"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain/core \
+        tests/test_campaign.c main/core/campaign.c \
+        -o "${test_dir}/test_campaign"
+    "${test_dir}/test_campaign"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain/core \
+        tests/test_battle.c main/core/battle.c main/core/campaign.c \
+        main/core/math_question.c -o "${test_dir}/test_battle"
+    "${test_dir}/test_battle"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
         tests/test_demo_navigation.c main/demo_navigation.c \
         -o "${test_dir}/test_demo_navigation"

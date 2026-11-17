@@ -15,6 +15,33 @@
 - 添加字库前评估 Flash 与内部 RAM 影响；ESP32-C3 无 PSRAM。
 - 不提交许可不允许分发的字库。
 
+### 算术消消乐字库子集
+
+应用在 `main/fonts/` 中内置四个 LVGL 字库，均由思源黑体（Adobe，SIL Open
+Font License 1.1；许可全文见
+[`fonts/SourceHanSansSC-LICENSE.txt`](fonts/SourceHanSansSC-LICENSE.txt)）
+SourceHanSansSC-Regular 生成。16 MB 的源 OTF 不提交。
+
+| 文件 | 规格 | 覆盖范围 |
+| --- | --- | --- |
+| `main/fonts/app_font_12.c` | 12 px，4 bpp | 可打印 ASCII + 界面汉字清单 |
+| `main/fonts/app_font_14.c` | 14 px，4 bpp | 可打印 ASCII + 界面汉字清单 |
+| `main/fonts/app_font_20.c` | 20 px，4 bpp | 可打印 ASCII + 界面汉字清单 |
+| `main/fonts/app_font_28.c` | 28 px，4 bpp | 可打印 ASCII + 界面汉字清单 |
+
+- 汉字清单：[`fonts/math_game_chars.txt`](fonts/math_game_chars.txt)，由
+  `python tools/collect_glyphs.py` 从 `main/app/`、`main/core/` 与
+  `main/main.c` 的全部显示文案自动收集。重新生成字库前先运行该脚本；清单过期
+  时静态校验会直接失败。
+- 转换工具：`lv_font_conv` 1.5.3，通过 `npx` 调用，参数
+  `--bpp 4 --no-compress`。
+- 重新生成：
+  `SOURCE_HAN_SANS=/path/to/SourceHanSansSC-Regular.otf tools/generate_app_fonts.sh`。
+- 源字体 SHA-256：
+  `f1d8611151880c6c336aabeac4640ef434fa13cbfbf1ffe82d0a71b2a5637256`。
+- 静态校验会运行 `tools/check_font_coverage.py`：界面文案出现清单或生成字库
+  未覆盖的字符时直接失败。
+
 ## 图片（images）
 
 可复用的源图与生成的显示资产放在 `images/`。
@@ -31,14 +58,30 @@
 - 许可允许时保留可编辑源文件，并记录来源与许可。
 - 图片中不得包含设备二维码秘密、凭证或个人数据。
 
+### 算术超能战精灵
+
+[`pixel-heroes/`](pixel-heroes/) 保存用户提供的 512 × 512 英雄与怪兽原画
+（以及 `raw/` 原始图）。它是可编辑源素材，不直接参与编译。
+`tools/build_sprites.py` 会裁剪 alpha 包围盒、按最近邻缩放到 72 × 88（英雄）
+或 80 × 80（怪兽），并生成 RGB565A8 数组写入 `main/assets/sprites.c`。每个
+英雄有 8 种动作（idle、fight、fly、beam、charge、kick、guard、victory），
+每个怪兽有 5 种动作（idle、attack、roar、charge、hurt）；战斗界面会根据当前
+阶段或反馈事件切换对应姿势，而不是始终显示同一张图。80 个描述符共
+1,528,320 字节负载。固件链接的是这些生成表，不要手工修改。
+
 ## 音乐与音效（music）
 
-可复用的音乐与音效源码放在 `music/`。
+可复用的音乐与音效源码放在 `music/`。应用专用的音效表可放在 `audio/`，但必须
+同时提供 `SOURCES.md` / `SOURCES.zh_CN.md` 记录来源与许可。
 
 - 记录来源、许可、采样率、位深、声道、转换命令与目标路径。
 - 与当前 BSP 音频路径匹配时优先采用 16 kHz、16 位单声道 PCM。
 - 嵌入音频前评估 Flash 与内部 RAM 成本；长录音应流式或分块。
 - 无再分发许可不提交媒体文件。
+
+算术超能战使用 CC0 的 Kenney 音效，清单见
+[`audio/SOURCES.zh_CN.md`](audio/SOURCES.zh_CN.md)。`tools/build_sfx.py` 负责
+裁剪、峰值归一化、淡入淡出并转换为 `main/audio/sfx.c`。
 
 ## 电池参数（battery）
 
