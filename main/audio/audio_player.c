@@ -7,6 +7,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "sfx_extra.h"
 
 static const char *TAG = "audio";
 
@@ -31,12 +32,22 @@ static voice_t s_voices[2];
 static bool is_priority(sfx_id_t id)
 {
     return id == SFX_CRITICAL || id == SFX_BEAM || id == SFX_MONSTER_DOWN ||
-           id == SFX_VICTORY || id == SFX_DEFEAT || id == SFX_CHARGE;
+           id == SFX_VICTORY || id == SFX_DEFEAT || id == SFX_CHARGE ||
+           id == SFX_WRONG;
+}
+
+static const sfx_clip_t *resolve_clip(sfx_id_t id)
+{
+    const sfx_clip_t *extra = sfx_extra_clip(id);
+    if (extra != NULL && extra->count > 0) {
+        return extra;
+    }
+    return sfx_clip(id);
 }
 
 static void start_voice(sfx_id_t id)
 {
-    const sfx_clip_t *clip = sfx_clip(id);
+    const sfx_clip_t *clip = resolve_clip(id);
     if (clip == NULL || clip->count == 0 || clip->samples == NULL) {
         return;
     }

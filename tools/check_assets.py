@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SPRITES_C = ROOT / "main" / "assets" / "sprites.c"
 SPRITES_H = ROOT / "main" / "assets" / "sprites.h"
 SFX_C = ROOT / "main" / "audio" / "sfx.c"
+SFX_EXTRA_C = ROOT / "main" / "audio" / "sfx_extra.c"
 SFX_H = ROOT / "main" / "audio" / "sfx.h"
 AUDIO_DOCS = [
     ROOT / "assets" / "audio" / "SOURCES.md",
@@ -73,19 +74,21 @@ def check_sfx(errors: list[str]) -> None:
         return
     ids.remove("SFX_COUNT")
     text = SFX_C.read_text(encoding="utf-8")
+    extra = SFX_EXTRA_C.read_text(encoding="utf-8") if SFX_EXTRA_C.is_file() else ""
     total = 0
-    for match in re.finditer(r"static const int16_t clip_\w+\[\] = \{(.*?)\n\};",
-                             text, re.S):
-        values = [v for v in re.findall(r"-?\d+", match.group(1))]
-        total += len(values)
+    for source in (text, extra):
+        for match in re.finditer(r"static const int16_t clip_\w+\[\] = \{(.*?)\n\};",
+                                 source, re.S):
+            values = [v for v in re.findall(r"-?\d+", match.group(1))]
+            total += len(values)
     if total == 0:
         errors.append("sfx.c: no PCM samples found")
     elif total > PCM_BUDGET_SAMPLES:
         errors.append(
-            f"sfx.c: {total} samples exceed budget {PCM_BUDGET_SAMPLES}")
+            f"sfx: {total} samples exceed budget {PCM_BUDGET_SAMPLES}")
     for sfx_id in ids:
-        if f"[{sfx_id}]" not in text:
-            errors.append(f"sfx.c: clip table is missing {sfx_id}")
+        if f"[{sfx_id}]" not in text and sfx_id not in extra:
+            errors.append(f"sfx: clip table is missing {sfx_id}")
     for doc in AUDIO_DOCS:
         if not doc.is_file():
             errors.append(f"missing audio documentation: {doc.relative_to(ROOT)}")

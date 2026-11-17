@@ -8,11 +8,11 @@
 #include "math_question.h"
 
 #define BATTLE_GAUGE_MAX 20
-#define BATTLE_CRITICAL_MS 900
-#define BATTLE_ATTACK_MS 650
-#define BATTLE_ENEMY_MS 900
-#define BATTLE_ULTIMATE_MS 2200
-#define BATTLE_BEAM_MS 3200
+#define BATTLE_CRITICAL_MS 800
+#define BATTLE_ATTACK_MS 520
+#define BATTLE_ENEMY_MS 760
+#define BATTLE_ULTIMATE_MS 1600
+#define BATTLE_BEAM_MS 3000
 #define BATTLE_CLEAR_MS 1200
 
 typedef enum {
@@ -35,6 +35,7 @@ typedef enum {
     BATTLE_EV_TIMEOUT,
     BATTLE_EV_CRITICAL_HIT,
     BATTLE_EV_CRITICAL_MISS,
+    BATTLE_EV_CRITICAL_PERFECT,
     BATTLE_EV_ATTACK_DONE,
     BATTLE_EV_ENEMY_DONE,
     BATTLE_EV_ULTIMATE_START,
@@ -94,6 +95,11 @@ typedef struct {
     uint8_t crit_marker;
     uint8_t crit_center;
     uint8_t crit_window;
+    // The effective window may be widened by answering quickly. The inner
+    // half of it is the perfect zone. Both flags describe the last critical.
+    uint8_t crit_window_effective;
+    bool crit_bonus;
+    bool crit_perfect;
 
     uint8_t beam_force;
     uint16_t beam_presses;

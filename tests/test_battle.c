@@ -21,8 +21,17 @@ static void answer_wrong(battle_t *b)
 
 static void crit_hit(battle_t *b)
 {
-    b->crit_marker = b->crit_center;
+    // Land inside the critical window but outside the perfect core.
+    const int perfect = b->crit_window_effective / 4;
+    const int offset = perfect + 1;
+    b->crit_marker = (uint8_t)(b->crit_center + offset);
     assert(battle_confirm(b) == BATTLE_EV_CRITICAL_HIT);
+}
+
+static void crit_perfect(battle_t *b)
+{
+    b->crit_marker = b->crit_center;
+    assert(battle_confirm(b) == BATTLE_EV_CRITICAL_PERFECT);
 }
 
 static void finish_attack(battle_t *b)
@@ -128,6 +137,43 @@ static void test_critical_timeout(void)
     assert(b.monster_hp == 3);
 }
 
+static void test_perfect_critical_and_speed_bonus(void)
+{
+    battle_t b;
+    battle_start(&b, 0, 1, 0, 2500);
+    const uint8_t base_window = b.crit_window;
+    answer_correct(&b);
+    // Answering immediately earns the widened window.
+    assert(b.crit_bonus);
+    assert(b.crit_window_effective == (uint8_t)(base_window * 5u / 4u));
+    assert(b.crit_window_effective > base_window);
+
+    const int32_t after_answer = b.score;
+    crit_perfect(&b);
+    assert(b.crit_perfect);
+    assert(b.monster_hp == 1);  // 4 - 3
+    assert(b.score == after_answer + 250);  // 100 base + 150 perfect
+    assert(b.phase == BATTLE_PHASE_ATTACK);
+
+    // A slow answer keeps the base window and cannot be perfect at the edge.
+    battle_start(&b, 0, 1, 0, 2501);
+    const uint8_t slow_window = b.crit_window;
+    const int32_t slow_step = b.question_ms * 41 / 100;
+    assert(battle_tick(&b, (uint32_t)slow_step) == BATTLE_EV_NONE);
+    answer_correct(&b);
+    assert(!b.crit_bonus);
+    assert(b.crit_window_effective == slow_window);
+}
+
+static void test_red_hero_perfect_damage(void)
+{
+    battle_t b;
+    battle_start(&b, 0, 1, 1, 2502);
+    answer_correct(&b);
+    crit_perfect(&b);
+    assert(b.monster_hp == 0);  // 4 - (3 + 1 red hero perk)
+}
+
 static void test_wrong_and_timeout(void)
 {
     battle_t b;
@@ -225,14 +271,12 @@ static void test_clear_and_stars(void)
     battle_start(&b, 0, 0, 0, 1111);
     assert(b.monster_hp == 3);
     answer_correct(&b);
-    b.crit_marker = b.crit_center;
-    assert(battle_confirm(&b) == BATTLE_EV_CRITICAL_HIT);
+    crit_hit(&b);
     finish_attack(&b);
     assert(b.phase == BATTLE_PHASE_QUESTION);
 
     answer_correct(&b);
-    b.crit_marker = b.crit_center;
-    assert(battle_confirm(&b) == BATTLE_EV_CRITICAL_HIT);
+    crit_hit(&b);
     assert(b.monster_hp == 0);
     assert(battle_tick(&b, BATTLE_ATTACK_MS) == BATTLE_EV_MONSTER_DEFEATED);
     assert(b.phase == BATTLE_PHASE_CLEAR);
@@ -249,8 +293,7 @@ static void test_star_tiers(void)
     b.wrong_count = 1;
     b.monster_hp = 1;
     answer_correct(&b);
-    b.crit_marker = b.crit_center;
-    assert(battle_confirm(&b) == BATTLE_EV_CRITICAL_HIT);
+    crit_hit(&b);
     (void)battle_tick(&b, BATTLE_ATTACK_MS);
     assert(b.stars == 2);
 
@@ -258,8 +301,7 @@ static void test_star_tiers(void)
     b.wrong_count = 2;
     b.monster_hp = 1;
     answer_correct(&b);
-    b.crit_marker = b.crit_center;
-    assert(battle_confirm(&b) == BATTLE_EV_CRITICAL_HIT);
+    crit_hit(&b);
     (void)battle_tick(&b, BATTLE_ATTACK_MS);
     assert(b.stars == 1);
 }
@@ -285,8 +327,7 @@ static void test_boss_beam_win(void)
     assert(b.boss);
     b.monster_hp = 2;
     answer_correct(&b);
-    b.crit_marker = b.crit_center;
-    assert(battle_confirm(&b) == BATTLE_EV_CRITICAL_HIT);
+    crit_hit(&b);
     assert(b.monster_hp == 0);
     assert(battle_tick(&b, BATTLE_ATTACK_MS) == BATTLE_EV_BEAM_START);
     assert(b.phase == BATTLE_PHASE_BEAM);
@@ -308,8 +349,7 @@ static void test_boss_beam_lose(void)
     battle_start(&b, CAMPAIGN_STAGE_COUNT - 1, 1, 0, 1616);
     b.monster_hp = 2;
     answer_correct(&b);
-    b.crit_marker = b.crit_center;
-    assert(battle_confirm(&b) == BATTLE_EV_CRITICAL_HIT);
+    crit_hit(&b);
     assert(battle_tick(&b, BATTLE_ATTACK_MS) == BATTLE_EV_BEAM_START);
     assert(battle_tick(&b, BATTLE_BEAM_MS) == BATTLE_EV_BEAM_LOSE);
     assert(b.phase == BATTLE_PHASE_QUESTION);
@@ -322,8 +362,7 @@ static void test_beam_force_decay(void)
     battle_start(&b, CAMPAIGN_STAGE_COUNT - 1, 1, 0, 1717);
     b.monster_hp = 2;
     answer_correct(&b);
-    b.crit_marker = b.crit_center;
-    assert(battle_confirm(&b) == BATTLE_EV_CRITICAL_HIT);
+    crit_hit(&b);
     (void)battle_tick(&b, BATTLE_ATTACK_MS);
     for (int i = 0; i < 3; i++) {
         (void)battle_confirm(&b);
@@ -369,6 +408,8 @@ int main(void)
     test_correct_critical_and_history();
     test_critical_miss();
     test_critical_timeout();
+    test_perfect_critical_and_speed_bonus();
+    test_red_hero_perfect_damage();
     test_wrong_and_timeout();
     test_adaptive_assist_and_last_stand();
     test_shield_hero();

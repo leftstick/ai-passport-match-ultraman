@@ -7,6 +7,7 @@
 //   * NVS 写入由 app 任务在锁外完成,避免在 LVGL 锁内做慢操作。
 #include "battle_app.h"
 
+#include "anim.h"
 #include "audio_player.h"
 #include "battle.h"
 #include "bsp_battery.h"
@@ -65,8 +66,31 @@ static const char *TAG = "battle_app";
 #define ACTION_W      228
 #define ACTION_H      86
 
-#define TICK_MS       50
-#define BATTERY_TICKS 30
+#define TICK_MS       33
+#define BATTERY_TICKS 45
+
+#define ACTION_ANIM_MS 140
+#define INPUT_BUFFER_MS 150
+#define POPUP_COUNT 4
+#define POPUP_LIFE_US 620000LL
+#define HP_TWEEN_X10_STEP 3
+#define GAUGE_TWEEN_X10_STEP 10
+
+// The core anim enums are intentionally ordered like the sprite enums. Keep
+// them pinned together so a future pose insertion fails at compile time.
+_Static_assert((int)ANIM_POSE_IDLE == (int)SPRITE_POSE_IDLE, "hero pose order");
+_Static_assert((int)ANIM_POSE_FIGHT == (int)SPRITE_POSE_FIGHT, "hero pose order");
+_Static_assert((int)ANIM_POSE_FLY == (int)SPRITE_POSE_FLY, "hero pose order");
+_Static_assert((int)ANIM_POSE_BEAM == (int)SPRITE_POSE_BEAM, "hero pose order");
+_Static_assert((int)ANIM_POSE_CHARGE == (int)SPRITE_POSE_CHARGE, "hero pose order");
+_Static_assert((int)ANIM_POSE_KICK == (int)SPRITE_POSE_KICK, "hero pose order");
+_Static_assert((int)ANIM_POSE_GUARD == (int)SPRITE_POSE_GUARD, "hero pose order");
+_Static_assert((int)ANIM_POSE_VICTORY == (int)SPRITE_POSE_VICTORY, "hero pose order");
+_Static_assert((int)ANIM_MONSTER_IDLE == (int)SPRITE_MONSTER_IDLE, "monster pose order");
+_Static_assert((int)ANIM_MONSTER_ATTACK == (int)SPRITE_MONSTER_ATTACK, "monster pose order");
+_Static_assert((int)ANIM_MONSTER_ROAR == (int)SPRITE_MONSTER_ROAR, "monster pose order");
+_Static_assert((int)ANIM_MONSTER_CHARGE == (int)SPRITE_MONSTER_CHARGE, "monster pose order");
+_Static_assert((int)ANIM_MONSTER_HURT == (int)SPRITE_MONSTER_HURT, "monster pose order");
 
 #define NVS_NAMESPACE "battle_v1"
 
@@ -82,6 +106,23 @@ typedef enum {
     OVERLAY_CLEAR,
     OVERLAY_OVER,
 } overlay_t;
+
+typedef enum {
+    IMPACT_NONE = 0,
+    IMPACT_HERO_HIT,
+    IMPACT_HERO_PERFECT,
+    IMPACT_HERO_MISS,
+    IMPACT_ENEMY,
+    IMPACT_ULTIMATE,
+} impact_kind_t;
+
+typedef struct {
+    bool active;
+    int64_t start_us;
+    int16_t x;
+    int16_t y;
+    int16_t y_last;
+} dmg_popup_t;
 
 typedef struct {
     lv_obj_t *battery;
@@ -109,6 +150,7 @@ typedef struct {
     lv_obj_t *monster_name;
     lv_obj_t *battery;
     lv_obj_t *arena;
+    lv_obj_t *stage;
     lv_obj_t *hero_img;
     lv_obj_t *monster_img;
     lv_obj_t *monster_hp;
@@ -129,12 +171,14 @@ typedef struct {
     lv_obj_t *action_sub;
     lv_obj_t *crit_track;
     lv_obj_t *crit_zone;
+    lv_obj_t *crit_perfect;
     lv_obj_t *crit_marker;
     lv_obj_t *beam_track;
     lv_obj_t *beam_fill;
     lv_obj_t *beam_glow;
     lv_obj_t *beam_core;
     lv_obj_t *flash;
+    lv_obj_t *popup[POPUP_COUNT];
 } battle_ui_t;
 
 static struct {
@@ -164,19 +208,66 @@ static struct {
     char notice[48];
 
     int64_t last_tick_us;
-    int64_t monster_flash_until_us;
-    int64_t hero_flash_until_us;
     int64_t arena_flash_until_us;
-    int64_t hit_stop_until_us;
 
     int8_t previous_pose;
     int8_t previous_monster_pose;
 
     uint8_t feedback_correct;
     uint8_t feedback_wrong;
+
+    // Damage is applied by the core immediately but revealed on the impact
+    // frame so the hit, the flash, the HP loss and the number line up.
+    int32_t monster_hp_disp_x10;
+    int32_t hero_hp_disp_x10;
+    int32_t gauge_disp_x10;
+    uint16_t monster_hp_goal;
+    uint16_t hero_hp_goal;
+    uint16_t monster_hp_seen;
+    uint16_t hero_hp_seen;
+
+    uint8_t impact_kind;
+    int64_t impact_at_us;
+    int32_t impact_damage;
+    bool hero_attack_missed;
+
+    int8_t buffered_move;
+
+    int16_t action_offset;
+    bool action_target_hidden;
+    uint8_t prev_phase;
+
+    dmg_popup_t popup[POPUP_COUNT];
+    uint8_t popup_next;
+
+    // Style/size caches. LVGL invalidates an object on every style write even
+    // when the value is unchanged, so only push changed values.
+    int16_t ui_monster_hp;
+    int16_t ui_gauge;
+    int16_t ui_timer_value;
+    int16_t ui_timer_total;
+    uint32_t ui_timer_color;
+    uint8_t row_sig[MATH_QUESTION_OPTION_COUNT];
+    int16_t row_value[MATH_QUESTION_OPTION_COUNT];
+    int16_t ui_hero_x;
+    int16_t ui_hero_y;
+    int16_t ui_monster_x;
+    int16_t ui_monster_y;
+    uint8_t ui_hero_flash;
+    uint8_t ui_monster_flash;
+    int8_t ui_shake_x;
+    int8_t ui_shake_y;
+    bool ui_beam_visible;
+    bool ui_flash_visible;
+    int16_t ui_crit_left;
+    int16_t ui_crit_width;
+    int16_t ui_beam_fill;
 } s_app;
 
 static volatile bool s_save_pending;
+
+static void set_notice(const char *text);
+static void set_notice_ms(const char *text, int64_t duration_us);
 
 // ---------------------------------------------------------------------------
 // 基础控件
@@ -243,12 +334,15 @@ static void label_set(lv_obj_t *label, const char *text)
 static void label_color(lv_obj_t *label, uint32_t color)
 {
     if (label == NULL) return;
-    lv_obj_set_style_text_color(label, lv_color_hex(color), 0);
+    const lv_color_t next = lv_color_hex(color);
+    if (lv_color_eq(lv_obj_get_style_text_color(label, 0), next)) return;
+    lv_obj_set_style_text_color(label, next, 0);
 }
 
 static void set_hidden(lv_obj_t *obj, bool hidden)
 {
     if (obj == NULL) return;
+    if (lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN) == hidden) return;
     if (hidden) {
         lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
     } else {
@@ -359,9 +453,8 @@ static void battery_string(char *buf, size_t size)
     }
 }
 
-static void hearts_string(char *buf, size_t size)
+static void hearts_string(char *buf, size_t size, uint16_t hp)
 {
-    const uint16_t hp = s_app.battle.hero_hp;
     const uint16_t max = s_app.battle.hero_hp_max;
     size_t pos = 0;
     for (uint16_t i = 0; i < max && pos + 4 < size; i++) {
@@ -567,30 +660,35 @@ static void build_stages(void)
 // ---------------------------------------------------------------------------
 static void refresh_battle_texts(void)
 {
-    const battle_t *battle = &s_app.battle;
+    battle_t *battle = &s_app.battle;
     const stage_def_t *stage = battle_stage_def(battle);
-    const hero_def_t *hero = battle_hero_def(battle);
+    const int64_t now = esp_timer_get_time();
 
     char buf[80];
     snprintf(buf, sizeof(buf), "第%d关", (int)battle->stage + 1);
     label_set(s_app.battle_ui.stage_label, buf);
     label_set(s_app.battle_ui.monster_name, stage->monster_name);
-    (void)stage->name;
 
-    hearts_string(buf, sizeof(buf));
+    const uint16_t hero_hp = (uint16_t)((s_app.hero_hp_disp_x10 + 5) / 10);
+    hearts_string(buf, sizeof(buf), hero_hp);
     label_set(s_app.battle_ui.hearts, buf);
 
-    lv_bar_set_range(s_app.battle_ui.monster_hp, 0,
-                     battle->monster_hp_max ? battle->monster_hp_max : 1);
-    lv_bar_set_value(s_app.battle_ui.monster_hp, battle->monster_hp, LV_ANIM_OFF);
-    lv_bar_set_range(s_app.battle_ui.gauge, 0, BATTLE_GAUGE_MAX);
-    lv_bar_set_value(s_app.battle_ui.gauge, battle->gauge, LV_ANIM_OFF);
+    const int16_t monster_hp = (int16_t)((s_app.monster_hp_disp_x10 + 5) / 10);
+    if (monster_hp != s_app.ui_monster_hp) {
+        s_app.ui_monster_hp = monster_hp;
+        lv_bar_set_value(s_app.battle_ui.monster_hp, monster_hp, LV_ANIM_OFF);
+    }
+    const int16_t gauge = (int16_t)((s_app.gauge_disp_x10 + 5) / 10);
+    if (gauge != s_app.ui_gauge) {
+        s_app.ui_gauge = gauge;
+        lv_bar_set_value(s_app.battle_ui.gauge, gauge, LV_ANIM_OFF);
+    }
 
     if (battle_can_ultimate(battle)) {
         label_set(s_app.battle_ui.gauge_text, "必杀就绪!");
         label_color(s_app.battle_ui.gauge_text, COL_GOLD);
     } else {
-        snprintf(buf, sizeof(buf), "必杀 %d/%d", (int)battle->gauge,
+        snprintf(buf, sizeof(buf), "必杀 %d/%d", (int)gauge,
                  (int)BATTLE_GAUGE_MAX);
         label_set(s_app.battle_ui.gauge_text, buf);
         label_color(s_app.battle_ui.gauge_text, COL_DIM);
@@ -601,7 +699,7 @@ static void refresh_battle_texts(void)
     const char *hint = "";
     switch (battle->phase) {
     case BATTLE_PHASE_QUESTION:
-        if (s_app.notice_until_us > esp_timer_get_time()) {
+        if (s_app.notice_until_us > now) {
             hint = s_app.notice;
         } else if (battle->hint_used) {
             hint = battle->question.hint;
@@ -616,16 +714,25 @@ static void refresh_battle_texts(void)
         }
         break;
     case BATTLE_PHASE_CRITICAL:
-        hint = "在金色区域按下确定";
+        hint = battle->crit_bonus ? "速攻加成!金色区域更宽"
+                                  : "看准金色区域,按下OK";
         break;
     case BATTLE_PHASE_ATTACK:
-        hint = "漂亮的一击!";
+        if (now < s_app.impact_at_us && s_app.impact_kind != IMPACT_NONE) {
+            hint = "出招!";
+        } else {
+            hint = s_app.hero_attack_missed ? "出手落空了…" : "漂亮的一击!";
+        }
         break;
     case BATTLE_PHASE_ENEMY:
-        hint = "被怪兽反击了!";
+        hint = (now < s_app.impact_at_us && s_app.impact_kind == IMPACT_ENEMY)
+                   ? "怪兽扑过来了!"
+                   : "被怪兽反击了!";
         break;
     case BATTLE_PHASE_ULTIMATE:
-        hint = "必杀技发动!";
+        hint = (now < s_app.impact_at_us && s_app.impact_kind == IMPACT_ULTIMATE)
+                   ? "蓄能中…"
+                   : "必杀技发动!";
         break;
     case BATTLE_PHASE_BEAM:
         hint = "连按确定,把光线推回去!";
@@ -643,8 +750,9 @@ static void refresh_battle_texts(void)
         break;
     }
     label_set(s_app.battle_ui.hint, hint);
-    if (battle->phase == BATTLE_PHASE_QUESTION &&
-        s_app.notice_until_us > esp_timer_get_time()) {
+    if ((battle->phase == BATTLE_PHASE_QUESTION &&
+         s_app.notice_until_us > now) ||
+        battle->phase == BATTLE_PHASE_CRITICAL) {
         label_color(s_app.battle_ui.hint, COL_GOLD);
     } else if (battle->hint_used) {
         label_color(s_app.battle_ui.hint, COL_ACCENT);
@@ -652,18 +760,31 @@ static void refresh_battle_texts(void)
         label_color(s_app.battle_ui.hint, COL_DIM);
     }
 
-    const int32_t total = battle->question_ms > 0 ? battle->question_ms : 1;
+    const int16_t total = (int16_t)(battle->question_ms > 0
+                                        ? battle->question_ms
+                                        : 1);
     const int32_t remain = battle->question_remaining_ms;
-    lv_bar_set_range(s_app.battle_ui.timer, 0, total);
-    lv_bar_set_value(s_app.battle_ui.timer, remain > 0 ? remain : 0, LV_ANIM_OFF);
+    if (total != s_app.ui_timer_total) {
+        s_app.ui_timer_total = total;
+        lv_bar_set_range(s_app.battle_ui.timer, 0, total);
+    }
+    const int16_t timer_value = (int16_t)(remain > 0 ? remain : 0);
+    if (timer_value != s_app.ui_timer_value) {
+        s_app.ui_timer_value = timer_value;
+        lv_bar_set_value(s_app.battle_ui.timer, timer_value, LV_ANIM_OFF);
+    }
     uint32_t timer_color = COL_OK;
     if (remain * 3 < total) {
         timer_color = COL_DANGER;
     } else if (remain * 2 < total) {
         timer_color = COL_GOLD;
     }
-    lv_obj_set_style_bg_color(s_app.battle_ui.timer, lv_color_hex(timer_color),
-                              LV_PART_INDICATOR);
+    if (timer_color != s_app.ui_timer_color) {
+        s_app.ui_timer_color = timer_color;
+        lv_obj_set_style_bg_color(s_app.battle_ui.timer,
+                                  lv_color_hex(timer_color),
+                                  LV_PART_INDICATOR);
+    }
 
     snprintf(buf, sizeof(buf), "得分 %d", (int)battle->score);
     label_set(s_app.battle_ui.score, buf);
@@ -684,20 +805,19 @@ static void refresh_battle_texts(void)
     } else if (battle->phase == BATTLE_PHASE_CRITICAL) {
         label_set(s_app.battle_ui.footer, "看准金色区域,按下OK");
         label_color(s_app.battle_ui.footer, COL_GOLD);
+    } else if (battle->phase == BATTLE_PHASE_ATTACK ||
+               battle->phase == BATTLE_PHASE_ENEMY) {
+        label_set(s_app.battle_ui.footer, "↑↓可预选下一题");
+        label_color(s_app.battle_ui.footer, COL_ACCENT);
     } else {
         label_set(s_app.battle_ui.footer, "↑↓选 · OK答 · 长按OK暂停");
         label_color(s_app.battle_ui.footer, COL_DIM);
     }
-
-    (void)hero;
 }
 
 static void refresh_battle_rows(void)
 {
     const battle_t *battle = &s_app.battle;
-    const bool action = battle->phase == BATTLE_PHASE_CRITICAL ||
-                        battle->phase == BATTLE_PHASE_ULTIMATE ||
-                        battle->phase == BATTLE_PHASE_BEAM;
     // Correct/wrong feedback belongs to the attack exchange only. Showing it
     // during QUESTION used to leave a green "correct" row on screen and made
     // it look like the cursor was parked on the right answer.
@@ -705,26 +825,34 @@ static void refresh_battle_rows(void)
                                battle->phase == BATTLE_PHASE_ENEMY;
 
     for (int i = 0; i < MATH_QUESTION_OPTION_COUNT; i++) {
-        set_hidden(s_app.battle_ui.row[i], action);
-        set_hidden(s_app.battle_ui.row_mark[i], true);
-        if (action) continue;
-
-        char buf[16];
-        snprintf(buf, sizeof(buf), "%d", (int)battle->question.options[i]);
-        label_set(s_app.battle_ui.row_text[i], buf);
-
         const bool selected = battle->phase == BATTLE_PHASE_QUESTION &&
                               battle->cursor == i;
+        const bool correct = show_feedback && s_app.feedback_correct == i;
+        const bool wrong = show_feedback && s_app.feedback_wrong == i;
+        const uint8_t sig = (uint8_t)((selected ? 1u : 0u) |
+                                      (correct ? 2u : 0u) |
+                                      (wrong ? 4u : 0u));
+        const int16_t value = (int16_t)battle->question.options[i];
+        if (sig == s_app.row_sig[i] && value == s_app.row_value[i]) {
+            continue;
+        }
+        s_app.row_sig[i] = sig;
+        s_app.row_value[i] = value;
+
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%d", (int)value);
+        label_set(s_app.battle_ui.row_text[i], buf);
+
         uint32_t bg = COL_TILE;
         uint32_t fg = COL_TEXT;
         int border = 0;
         uint32_t border_color = COL_ACCENT;
-        if (show_feedback && s_app.feedback_correct == i) {
+        if (correct) {
             bg = 0x123B2A;
             fg = COL_OK;
             border = 2;
             border_color = COL_OK;
-        } else if (show_feedback && s_app.feedback_wrong == i) {
+        } else if (wrong) {
             bg = 0x3A1520;
             fg = COL_DANGER;
             border = 2;
@@ -734,43 +862,56 @@ static void refresh_battle_rows(void)
             fg = COL_GOLD;
             border = 2;
             border_color = COL_GOLD;
-            set_hidden(s_app.battle_ui.row_mark[i], false);
         }
         lv_obj_set_style_bg_color(s_app.battle_ui.row[i], lv_color_hex(bg), 0);
         lv_obj_set_style_border_width(s_app.battle_ui.row[i], border, 0);
         lv_obj_set_style_border_color(s_app.battle_ui.row[i],
                                       lv_color_hex(border_color), 0);
         label_color(s_app.battle_ui.row_text[i], fg);
+        set_hidden(s_app.battle_ui.row_mark[i], !selected);
     }
 }
 
 static void refresh_battle_action(void)
 {
-    const battle_t *battle = &s_app.battle;
+    battle_t *battle = &s_app.battle;
 
     if (battle->phase == BATTLE_PHASE_CRITICAL) {
-        set_hidden(s_app.battle_ui.action, false);
         label_set(s_app.battle_ui.action_title, "暴击时刻!");
         label_color(s_app.battle_ui.action_title, COL_GOLD);
-        label_set(s_app.battle_ui.action_sub, "金色区域按下确定");
+        label_set(s_app.battle_ui.action_sub,
+                  battle->crit_bonus ? "速攻加成!金色区域更宽"
+                                     : "金色区域按下确定");
         set_hidden(s_app.battle_ui.crit_track, false);
         set_hidden(s_app.battle_ui.crit_marker, false);
         set_hidden(s_app.battle_ui.beam_track, true);
 
-        const int half = battle->crit_window / 2;
+        const int eff = battle->crit_window_effective > 0
+                            ? battle->crit_window_effective
+                            : battle->crit_window;
+        const int half = eff / 2;
         int left = (int)battle->crit_center - half;
         if (left < 0) left = 0;
-        int width = battle->crit_window;
+        int width = eff;
         if (left + width > 100) width = 100 - left;
-        lv_obj_set_pos(s_app.battle_ui.crit_zone, left * 200 / 100, 2);
-        lv_obj_set_size(s_app.battle_ui.crit_zone, width * 200 / 100, 10);
-        const int marker_x = ACTION_X + 14 + (int)battle->crit_marker * 200 / 100 - 2;
-        lv_obj_set_pos(s_app.battle_ui.crit_marker, marker_x - ACTION_X, 32);
+        const int left_px = left * 200 / 100;
+        const int width_px = width * 200 / 100;
+        if (left_px != s_app.ui_crit_left || width_px != s_app.ui_crit_width) {
+            s_app.ui_crit_left = (int16_t)left_px;
+            s_app.ui_crit_width = (int16_t)width_px;
+            lv_obj_set_pos(s_app.battle_ui.crit_zone, left_px, 2);
+            lv_obj_set_size(s_app.battle_ui.crit_zone, width_px, 10);
+            const int perfect_w = width_px / 2;
+            lv_obj_set_pos(s_app.battle_ui.crit_perfect,
+                           left_px + (width_px - perfect_w) / 2, 3);
+            lv_obj_set_size(s_app.battle_ui.crit_perfect, perfect_w, 8);
+        }
+        lv_obj_set_pos(s_app.battle_ui.crit_marker,
+                       14 + (int)battle->crit_marker * 200 / 100 - 2, 32);
         return;
     }
 
     if (battle->phase == BATTLE_PHASE_ULTIMATE) {
-        set_hidden(s_app.battle_ui.action, false);
         label_set(s_app.battle_ui.action_title, "必杀技!");
         label_color(s_app.battle_ui.action_title, COL_ACCENT);
         label_set(s_app.battle_ui.action_sub, "超能光线全功率释放");
@@ -781,150 +922,360 @@ static void refresh_battle_action(void)
     }
 
     if (battle->phase == BATTLE_PHASE_BEAM) {
-        set_hidden(s_app.battle_ui.action, false);
         label_set(s_app.battle_ui.action_title, "光线对决!");
         label_color(s_app.battle_ui.action_title, COL_DANGER);
         char sub[48];
-        snprintf(sub, sizeof(sub), "连按确定!已按 %d 次", (int)battle->beam_presses);
+        snprintf(sub, sizeof(sub), "连按确定!已按 %d 次",
+                 (int)battle->beam_presses);
         label_set(s_app.battle_ui.action_sub, sub);
         set_hidden(s_app.battle_ui.crit_track, true);
         set_hidden(s_app.battle_ui.crit_marker, true);
         set_hidden(s_app.battle_ui.beam_track, false);
-        lv_obj_set_size(s_app.battle_ui.beam_fill, battle->beam_force * 160 / 100, 6);
+        const int16_t fill = (int16_t)(battle->beam_force * 160 / 100);
+        if (fill != s_app.ui_beam_fill) {
+            s_app.ui_beam_fill = fill;
+            lv_obj_set_size(s_app.battle_ui.beam_fill, fill, 6);
+        }
         return;
     }
-
-    set_hidden(s_app.battle_ui.action, true);
 }
 
-static void refresh_battle_sprites(void)
+static void apply_poses(uint8_t hero_pose, uint8_t monster_pose)
 {
     const battle_t *battle = &s_app.battle;
-
-    sprite_pose_t hero_pose = SPRITE_POSE_IDLE;
-    sprite_monster_pose_t monster_pose = SPRITE_MONSTER_IDLE;
-    switch (battle->phase) {
-    case BATTLE_PHASE_CRITICAL:
-        hero_pose = SPRITE_POSE_FIGHT;
-        break;
-    case BATTLE_PHASE_ATTACK:
-        // Alternate a flying punch and a kick so repeated hits do not look
-        // like the same frame every time.
-        hero_pose = (battle->correct_count & 1u) ? SPRITE_POSE_KICK
-                                                 : SPRITE_POSE_FLY;
-        monster_pose = SPRITE_MONSTER_HURT;
-        break;
-    case BATTLE_PHASE_ENEMY:
-        hero_pose = SPRITE_POSE_GUARD;
-        monster_pose = SPRITE_MONSTER_ATTACK;
-        break;
-    case BATTLE_PHASE_ULTIMATE:
-        hero_pose = SPRITE_POSE_CHARGE;
-        monster_pose = SPRITE_MONSTER_ROAR;
-        break;
-    case BATTLE_PHASE_BEAM:
-        hero_pose = SPRITE_POSE_BEAM;
-        monster_pose = SPRITE_MONSTER_CHARGE;
-        break;
-    case BATTLE_PHASE_CLEAR:
-        hero_pose = SPRITE_POSE_VICTORY;
-        monster_pose = SPRITE_MONSTER_HURT;
-        break;
-    case BATTLE_PHASE_OVER:
-        hero_pose = SPRITE_POSE_GUARD;
-        monster_pose = SPRITE_MONSTER_ROAR;
-        break;
-    default:
-        break;
+    if (hero_pose >= SPRITE_POSE_COUNT) {
+        hero_pose = SPRITE_POSE_IDLE;
     }
-
+    if (monster_pose >= SPRITE_MONSTER_COUNT) {
+        monster_pose = SPRITE_MONSTER_IDLE;
+    }
     if (s_app.previous_pose != (int8_t)hero_pose) {
         s_app.previous_pose = (int8_t)hero_pose;
         lv_image_set_src(s_app.battle_ui.hero_img,
-                         sprites_hero(battle->hero, hero_pose));
+                         sprites_hero(battle->hero, (sprite_pose_t)hero_pose));
     }
     if (s_app.previous_monster_pose != (int8_t)monster_pose) {
         s_app.previous_monster_pose = (int8_t)monster_pose;
         lv_image_set_src(s_app.battle_ui.monster_img,
-                         sprites_monster(battle->stage, monster_pose));
+                         sprites_monster(battle->stage,
+                                         (sprite_monster_pose_t)monster_pose));
+    }
+}
+
+static void spawn_popup(const char *text, uint32_t color, int x, int y)
+{
+    const uint8_t slot = s_app.popup_next;
+    s_app.popup_next = (uint8_t)((s_app.popup_next + 1u) % POPUP_COUNT);
+    lv_obj_t *label = s_app.battle_ui.popup[slot];
+    if (label == NULL) {
+        return;
+    }
+    lv_label_set_text(label, text);
+    lv_obj_set_style_text_color(label, lv_color_hex(color), 0);
+    lv_obj_set_style_text_opa(label, LV_OPA_COVER, 0);
+    lv_obj_set_pos(label, x, y);
+    set_hidden(label, false);
+    dmg_popup_t *popup = &s_app.popup[slot];
+    popup->active = true;
+    popup->start_us = esp_timer_get_time();
+    popup->x = (int16_t)x;
+    popup->y = (int16_t)y;
+    popup->y_last = (int16_t)y;
+}
+
+static void refresh_popups(int64_t now)
+{
+    for (int i = 0; i < POPUP_COUNT; i++) {
+        dmg_popup_t *popup = &s_app.popup[i];
+        if (!popup->active) {
+            continue;
+        }
+        const int64_t age = now - popup->start_us;
+        lv_obj_t *label = s_app.battle_ui.popup[i];
+        if (age >= POPUP_LIFE_US) {
+            popup->active = false;
+            set_hidden(label, true);
+            continue;
+        }
+        const int rise = (int)(age * 26 / 1000);
+        const int16_t y = (int16_t)(popup->y - rise);
+        if (y != popup->y_last) {
+            popup->y_last = y;
+            lv_obj_set_pos(label, popup->x, y);
+        }
+        const int opa = 255 - (int)(age * 255 / POPUP_LIFE_US);
+        lv_obj_set_style_text_opa(label, (lv_opa_t)opa, 0);
+    }
+}
+
+static int32_t approach(int32_t current, int32_t goal, int32_t step)
+{
+    if (current < goal) {
+        return (current + step > goal) ? goal : current + step;
+    }
+    if (current > goal) {
+        return (current - step < goal) ? goal : current - step;
+    }
+    return current;
+}
+
+static void tween_bars(uint32_t dt_ms)
+{
+    if (dt_ms == 0) {
+        dt_ms = TICK_MS;
+    }
+    int32_t hp_step = (int32_t)(HP_TWEEN_X10_STEP * dt_ms / TICK_MS);
+    if (hp_step < 1) {
+        hp_step = 1;
+    }
+    s_app.monster_hp_disp_x10 =
+        approach(s_app.monster_hp_disp_x10,
+                 (int32_t)s_app.monster_hp_goal * 10, hp_step);
+    s_app.hero_hp_disp_x10 =
+        approach(s_app.hero_hp_disp_x10, (int32_t)s_app.hero_hp_goal * 10,
+                 hp_step);
+
+    int32_t gauge_step = (int32_t)(GAUGE_TWEEN_X10_STEP * dt_ms / TICK_MS);
+    if (gauge_step < 1) {
+        gauge_step = 1;
+    }
+    s_app.gauge_disp_x10 =
+        approach(s_app.gauge_disp_x10, (int32_t)s_app.battle.gauge * 10,
+                 gauge_step);
+}
+
+static void update_panel(uint32_t dt_ms)
+{
+    const uint8_t phase = s_app.battle.phase;
+    const bool want_hidden = !(phase == BATTLE_PHASE_CRITICAL ||
+                               phase == BATTLE_PHASE_ULTIMATE ||
+                               phase == BATTLE_PHASE_BEAM);
+    s_app.action_target_hidden = want_hidden;
+    const int16_t target = want_hidden ? ACTION_H : 0;
+    if (s_app.action_offset == target) {
+        set_hidden(s_app.battle_ui.action, want_hidden);
+        return;
+    }
+    set_hidden(s_app.battle_ui.action, false);
+    if (dt_ms == 0) {
+        return;
+    }
+    const int step =
+        ((ACTION_H * (int)dt_ms) + ACTION_ANIM_MS - 1) / ACTION_ANIM_MS;
+    if (s_app.action_offset < target) {
+        s_app.action_offset = (int16_t)(s_app.action_offset + step > target
+                                            ? target
+                                            : s_app.action_offset + step);
+    } else {
+        s_app.action_offset = (int16_t)(s_app.action_offset - step < target
+                                            ? target
+                                            : s_app.action_offset - step);
+    }
+    lv_obj_set_pos(s_app.battle_ui.action, ACTION_X,
+                   ACTION_Y + s_app.action_offset);
+}
+
+static void schedule_impact(impact_kind_t kind, int damage)
+{
+    anim_id_t id = ANIM_HERO_ATTACK;
+    uint32_t duration = BATTLE_ATTACK_MS;
+    if (kind == IMPACT_ENEMY) {
+        id = ANIM_ENEMY_ATTACK;
+        duration = BATTLE_ENEMY_MS;
+    } else if (kind == IMPACT_ULTIMATE) {
+        id = ANIM_ULTIMATE;
+        duration = BATTLE_ULTIMATE_MS;
+    }
+    s_app.impact_kind = (uint8_t)kind;
+    s_app.impact_damage = damage;
+    s_app.impact_at_us =
+        esp_timer_get_time() + (int64_t)anim_impact_ms(id, duration) * 1000;
+}
+
+static void update_impact(int64_t now)
+{
+    if (s_app.impact_kind == IMPACT_NONE || now < s_app.impact_at_us) {
+        return;
+    }
+    battle_t *battle = &s_app.battle;
+    const impact_kind_t kind = (impact_kind_t)s_app.impact_kind;
+    s_app.impact_kind = IMPACT_NONE;
+    int damage = (int)s_app.impact_damage;
+    if (damage < 0) {
+        damage = 0;
+    }
+
+    char text[16];
+    if (kind == IMPACT_ENEMY) {
+        s_app.hero_hp_goal = battle->hero_hp;
+        if (damage > 0) {
+            snprintf(text, sizeof(text), "-%d", damage);
+            spawn_popup(text, COL_DANGER, HERO_X - ARENA_X + 13, 34);
+            audio_player_play(SFX_HURT);
+        } else {
+            spawn_popup("护盾", COL_ACCENT, HERO_X - ARENA_X + 10, 34);
+        }
+        s_app.arena_flash_until_us = now + 110000;
+        return;
+    }
+
+    if (kind == IMPACT_HERO_MISS) {
+        spawn_popup("MISS", COL_DIM, MONSTER_X - ARENA_X + 10, 30);
+        return;
+    }
+
+    s_app.monster_hp_goal = battle->monster_hp;
+    snprintf(text, sizeof(text), "-%d", damage > 0 ? damage : 1);
+    if (kind == IMPACT_ULTIMATE) {
+        spawn_popup(text, COL_ACCENT, MONSTER_X - ARENA_X + 16, 26);
+        audio_player_play(SFX_BEAM);
+        audio_player_play(SFX_HIT);
+        s_app.arena_flash_until_us = now + 180000;
+    } else {
+        const bool perfect = kind == IMPACT_HERO_PERFECT;
+        spawn_popup(text, perfect ? COL_GOLD : COL_TEXT,
+                    MONSTER_X - ARENA_X + 16, 26);
+        audio_player_play(SFX_HIT);
+        if (perfect) {
+            // Keep the praise brief so the next question's own hint returns
+            // before the player needs it.
+            set_notice_ms("完美暴击!", 700000LL);
+        }
+        s_app.arena_flash_until_us = now + 90000;
     }
 }
 
 static void refresh_battle_animation(void)
 {
-    const battle_t *battle = &s_app.battle;
+    battle_t *battle = &s_app.battle;
     const int64_t now = esp_timer_get_time();
-    const uint32_t anim = (uint32_t)(now / 1000);
+    const uint32_t now_ms = (uint32_t)(now / 1000);
 
-    int hx = HERO_X;
-    int hy = HERO_Y;
-    int mx = MONSTER_X;
-    int my = MONSTER_Y;
-    const int bob = ((anim / 420) % 2) ? 1 : 0;
+    anim_id_t id = ANIM_IDLE;
+    uint32_t duration = 1000;
+    uint32_t elapsed = 0;
+    bool idle_breath = false;
 
     switch (battle->phase) {
-    case BATTLE_PHASE_QUESTION:
-    case BATTLE_PHASE_CRITICAL:
-        hy += bob;
+    case BATTLE_PHASE_ATTACK:
+        id = ANIM_HERO_ATTACK;
+        duration = BATTLE_ATTACK_MS;
+        elapsed = (uint32_t)(BATTLE_ATTACK_MS - battle->phase_ms);
         break;
-    case BATTLE_PHASE_ATTACK: {
-        const int p = (BATTLE_ATTACK_MS - (int)battle->phase_ms) * 100 / BATTLE_ATTACK_MS;
-        const int tri = 100 - abs(p * 2 - 100);
-        hx += tri * 30 / 100;
-        hy -= tri * 4 / 100;
+    case BATTLE_PHASE_ENEMY:
+        id = ANIM_ENEMY_ATTACK;
+        duration = BATTLE_ENEMY_MS;
+        elapsed = (uint32_t)(BATTLE_ENEMY_MS - battle->phase_ms);
         break;
-    }
-    case BATTLE_PHASE_ENEMY: {
-        const int p = (BATTLE_ENEMY_MS - (int)battle->phase_ms) * 100 / BATTLE_ENEMY_MS;
-        const int tri = 100 - abs(p * 2 - 100);
-        mx -= tri * 26 / 100;
-        my -= tri * 6 / 100;
+    case BATTLE_PHASE_ULTIMATE:
+        id = ANIM_ULTIMATE;
+        duration = BATTLE_ULTIMATE_MS;
+        elapsed = (uint32_t)(BATTLE_ULTIMATE_MS - battle->phase_ms);
         break;
-    }
-    case BATTLE_PHASE_ULTIMATE: {
-        const int p = (BATTLE_ULTIMATE_MS - (int)battle->phase_ms) * 100 /
-                      BATTLE_ULTIMATE_MS;
-        const int tri = 100 - abs(p * 2 - 100);
-        hx += tri * 8 / 100;
+    case BATTLE_PHASE_BEAM:
+        id = ANIM_BEAM;
+        duration = BATTLE_BEAM_MS;
+        elapsed = (uint32_t)(BATTLE_BEAM_MS - battle->phase_ms);
         break;
-    }
     case BATTLE_PHASE_CLEAR:
-        hy -= bob * 3;
+        id = ANIM_CLEAR;
+        duration = BATTLE_CLEAR_MS;
+        elapsed = (uint32_t)(BATTLE_CLEAR_MS - battle->phase_ms);
+        break;
+    case BATTLE_PHASE_OVER:
+        id = ANIM_OVER;
+        duration = 1000;
+        elapsed = 500;
         break;
     default:
+        idle_breath = true;
         break;
     }
 
-    lv_obj_set_pos(s_app.battle_ui.hero_img, hx - ARENA_X, hy - ARENA_Y);
-    lv_obj_set_pos(s_app.battle_ui.monster_img, mx - ARENA_X, my - ARENA_Y);
+    anim_frame_t frame = anim_sample(id, elapsed, duration);
+    if (battle->phase == BATTLE_PHASE_ATTACK && s_app.hero_attack_missed) {
+        // A whiff must not knock the monster back or make it flash.
+        frame.monster_pose = ANIM_MONSTER_IDLE;
+        frame.monster_dx = 0;
+        frame.monster_dy = 0;
+        frame.monster_flash = 0;
+    }
 
-    const bool monster_flash = now < s_app.monster_flash_until_us;
-    lv_obj_set_style_image_recolor(s_app.battle_ui.monster_img,
-                                   lv_color_hex(COL_TEXT), 0);
-    lv_obj_set_style_image_recolor_opa(s_app.battle_ui.monster_img,
-                                       monster_flash ? LV_OPA_70 : LV_OPA_TRANSP, 0);
-    const bool hero_flash = now < s_app.hero_flash_until_us;
-    lv_obj_set_style_image_recolor(s_app.battle_ui.hero_img,
-                                   lv_color_hex(COL_DANGER), 0);
-    lv_obj_set_style_image_recolor_opa(s_app.battle_ui.hero_img,
-                                       hero_flash ? LV_OPA_70 : LV_OPA_TRANSP, 0);
+    int hx = HERO_X + frame.hero_dx;
+    int hy = HERO_Y + frame.hero_dy;
+    int mx = MONSTER_X + frame.monster_dx;
+    int my = MONSTER_Y + frame.monster_dy;
+    if (idle_breath) {
+        // Desynchronised two-step breathing instead of a 1 px square wave.
+        hy += anim_breathe(now_ms, 0, 2400);
+        my += anim_breathe(now_ms, 1200, 2600);
+    }
 
-    lv_obj_set_style_bg_opa(s_app.battle_ui.flash,
-                            now < s_app.arena_flash_until_us ? LV_OPA_40
-                                                             : LV_OPA_TRANSP,
-                            0);
+    apply_poses(frame.hero_pose, frame.monster_pose);
 
-    const bool beam = battle->phase == BATTLE_PHASE_ULTIMATE ||
-                      battle->phase == BATTLE_PHASE_BEAM;
-    set_hidden(s_app.battle_ui.beam_glow, !beam);
-    set_hidden(s_app.battle_ui.beam_core, !beam);
+    if (hx != s_app.ui_hero_x || hy != s_app.ui_hero_y) {
+        s_app.ui_hero_x = (int16_t)hx;
+        s_app.ui_hero_y = (int16_t)hy;
+        lv_obj_set_pos(s_app.battle_ui.hero_img, hx - ARENA_X, hy - ARENA_Y);
+    }
+    if (mx != s_app.ui_monster_x || my != s_app.ui_monster_y) {
+        s_app.ui_monster_x = (int16_t)mx;
+        s_app.ui_monster_y = (int16_t)my;
+        lv_obj_set_pos(s_app.battle_ui.monster_img, mx - ARENA_X, my - ARENA_Y);
+    }
+
+    if (frame.hero_flash != s_app.ui_hero_flash) {
+        s_app.ui_hero_flash = frame.hero_flash;
+        lv_obj_set_style_image_recolor_opa(
+            s_app.battle_ui.hero_img,
+            (lv_opa_t)((uint32_t)frame.hero_flash * 255u / 100u), 0);
+    }
+    if (frame.monster_flash != s_app.ui_monster_flash) {
+        s_app.ui_monster_flash = frame.monster_flash;
+        lv_obj_set_style_image_recolor_opa(
+            s_app.battle_ui.monster_img,
+            (lv_opa_t)((uint32_t)frame.monster_flash * 255u / 100u), 0);
+    }
+
+    int8_t shake_x = 0;
+    int8_t shake_y = 0;
+    if (frame.shake > 0) {
+        const uint32_t frame_index = now_ms / TICK_MS;
+        const uint32_t hash = frame_index * 2654435761u;
+        const uint32_t span = (uint32_t)frame.shake * 2u + 1u;
+        shake_x = (int8_t)((int)((hash >> 16) % span) - frame.shake);
+        shake_y = (int8_t)((int)((hash >> 8) % span) - frame.shake);
+    }
+    if (shake_x != s_app.ui_shake_x || shake_y != s_app.ui_shake_y) {
+        s_app.ui_shake_x = shake_x;
+        s_app.ui_shake_y = shake_y;
+        lv_obj_set_pos(s_app.battle_ui.stage, shake_x, shake_y);
+    }
+
+    const bool flash_on = now < s_app.arena_flash_until_us;
+    if (flash_on != s_app.ui_flash_visible) {
+        s_app.ui_flash_visible = flash_on;
+        lv_obj_set_style_bg_opa(s_app.battle_ui.flash,
+                                flash_on ? LV_OPA_40 : LV_OPA_TRANSP, 0);
+    }
+
+    const bool beam = frame.beam > 0;
+    if (beam != s_app.ui_beam_visible) {
+        s_app.ui_beam_visible = beam;
+        set_hidden(s_app.battle_ui.beam_glow, !beam);
+        set_hidden(s_app.battle_ui.beam_core, !beam);
+    }
     if (beam) {
-        const int force = battle->phase == BATTLE_PHASE_BEAM ? battle->beam_force : 65;
-        const int glow_h = 10 + force * 12 / 100;
-        const int core_h = 4 + force * 8 / 100;
+        const int force = battle->phase == BATTLE_PHASE_BEAM
+                              ? battle->beam_force
+                              : frame.beam;
+        const int glow_h = 8 + force * 12 / 100;
+        const int core_h = 3 + force * 8 / 100;
         const int x0 = hx + 54;
         int width = mx - x0;
-        if (width < 4) width = 4;
+        if (width < 4) {
+            width = 4;
+        }
         const int cy = 66;
         lv_obj_set_pos(s_app.battle_ui.beam_glow, x0 - ARENA_X,
                        cy - glow_h / 2 - ARENA_Y);
@@ -935,15 +1286,24 @@ static void refresh_battle_animation(void)
     }
 }
 
-static void refresh_battle(void)
+static void refresh_battle_with_dt(uint32_t dt_ms)
 {
     if (s_app.page != PAGE_BATTLE || s_app.root == NULL) return;
+    const int64_t now = esp_timer_get_time();
+    update_impact(now);
+    tween_bars(dt_ms);
+    update_panel(dt_ms);
     refresh_battle_texts();
     refresh_battle_rows();
     refresh_battle_action();
-    refresh_battle_sprites();
     refresh_battle_animation();
+    refresh_popups(now);
     set_battery_labels();
+}
+
+static void refresh_battle(void)
+{
+    refresh_battle_with_dt(TICK_MS);
 }
 
 static lv_obj_t *make_bar(lv_obj_t *parent, int x, int y, int w, int h,
@@ -976,26 +1336,52 @@ static void build_battle(void)
     ui->arena = make_panel(scr, ARENA_X, ARENA_Y, ARENA_W, ARENA_H, COL_PANEL, 10);
     lv_obj_set_style_border_width(ui->arena, 1, 0);
     lv_obj_set_style_border_color(ui->arena, lv_color_hex(COL_EDGE), 0);
+    lv_obj_add_flag(ui->arena, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
 
-    ui->hero_img = lv_image_create(ui->arena);
+    // Inner layer so the screen shake moves the fighters but not the HP bar,
+    // hearts or flash overlay.
+    ui->stage = lv_obj_create(ui->arena);
+    lv_obj_remove_flag(ui->stage, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_pos(ui->stage, 0, 0);
+    lv_obj_set_size(ui->stage, ARENA_W, ARENA_H);
+    lv_obj_set_style_bg_opa(ui->stage, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(ui->stage, 0, 0);
+    lv_obj_set_style_pad_all(ui->stage, 0, 0);
+    lv_obj_add_flag(ui->stage, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+
+    ui->hero_img = lv_image_create(ui->stage);
     lv_obj_set_pos(ui->hero_img, HERO_X - ARENA_X, HERO_Y - ARENA_Y);
     lv_obj_set_size(ui->hero_img, 72, 88);
+    lv_obj_set_style_image_recolor(ui->hero_img, lv_color_hex(COL_DANGER), 0);
+    lv_obj_set_style_image_recolor_opa(ui->hero_img, LV_OPA_TRANSP, 0);
 
-    ui->monster_img = lv_image_create(ui->arena);
+    ui->monster_img = lv_image_create(ui->stage);
     lv_obj_set_pos(ui->monster_img, MONSTER_X - ARENA_X, MONSTER_Y - ARENA_Y);
     lv_obj_set_size(ui->monster_img, 80, 80);
+    lv_obj_set_style_image_recolor(ui->monster_img, lv_color_hex(COL_TEXT), 0);
+    lv_obj_set_style_image_recolor_opa(ui->monster_img, LV_OPA_TRANSP, 0);
 
-    ui->beam_glow = make_panel(ui->arena, 80, 60, 50, 16, COL_ACCENT, 6);
+    ui->beam_glow = make_panel(ui->stage, 80, 60, 50, 16, COL_ACCENT, 6);
     lv_obj_set_style_bg_opa(ui->beam_glow, LV_OPA_50, 0);
-    ui->beam_core = make_panel(ui->arena, 80, 63, 50, 8, COL_TEXT, 4);
+    ui->beam_core = make_panel(ui->stage, 80, 63, 50, 8, COL_TEXT, 4);
+    set_hidden(ui->beam_glow, true);
+    set_hidden(ui->beam_core, true);
+
+    // Impact flash sits above the fighters but below the HP bar and hearts, so
+    // the arena flashes without hiding the information the player needs.
+    ui->flash = make_panel(ui->arena, 0, 0, ARENA_W, ARENA_H, COL_TEXT, 0);
+    lv_obj_set_style_bg_opa(ui->flash, LV_OPA_TRANSP, 0);
 
     ui->monster_hp = make_bar(ui->arena, MONSTER_X - ARENA_X, 84, 88, 6,
                               COL_EDGE, COL_DANGER);
     lv_obj_set_style_border_width(ui->monster_hp, 1, LV_PART_MAIN);
     lv_obj_set_style_border_color(ui->monster_hp, lv_color_hex(COL_BG), LV_PART_MAIN);
+    lv_bar_set_range(ui->monster_hp, 0,
+                     s_app.battle.monster_hp_max ? s_app.battle.monster_hp_max : 1);
 
     ui->hearts = make_label(ui->arena, 4, 90, 84, "", &app_font_12, COL_DANGER);
     ui->gauge = make_bar(scr, 6, 134, 166, 8, COL_EDGE, COL_ACCENT);
+    lv_bar_set_range(ui->gauge, 0, BATTLE_GAUGE_MAX);
     ui->gauge_text = make_label(scr, 178, 131, 56, "", &app_font_12, COL_DIM);
 
     ui->question = make_center(scr, 0, 146, SCREEN_W, "", &app_font_20, COL_TEXT);
@@ -1019,10 +1405,12 @@ static void build_battle(void)
     ui->footer = make_center(scr, 0, 296, SCREEN_W, "", &app_font_12, COL_DIM);
 
     // 暴击/必杀提示区,盖住答题行。
-    ui->action = make_panel(scr, ACTION_X, ACTION_Y, ACTION_W, ACTION_H,
-                            COL_PANEL, 10);
+    ui->action = make_panel(scr, ACTION_X, ACTION_Y + ACTION_H, ACTION_W,
+                            ACTION_H, COL_PANEL, 10);
+    lv_obj_add_flag(ui->action, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
     lv_obj_set_style_border_width(ui->action, 1, 0);
     lv_obj_set_style_border_color(ui->action, lv_color_hex(COL_EDGE), 0);
+    set_hidden(ui->action, true);
     ui->action_title = make_center(ui->action, 0, 6, ACTION_W, "", &app_font_20,
                                    COL_GOLD);
     ui->action_sub = make_center(ui->action, 0, 64, ACTION_W, "", &app_font_12,
@@ -1030,14 +1418,19 @@ static void build_battle(void)
 
     ui->crit_track = make_panel(ui->action, 14, 38, 200, 14, COL_TILE, 7);
     lv_obj_add_flag(ui->crit_track, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
-    ui->crit_zone = make_panel(ui->crit_track, 90, 2, 20, 10, COL_OK, 5);
+    ui->crit_zone = make_panel(ui->crit_track, 90, 2, 20, 10, COL_GOLD, 5);
+    ui->crit_perfect = make_panel(ui->crit_track, 94, 3, 10, 8, 0xFFF3B0, 4);
     ui->crit_marker = make_panel(ui->action, 112, 32, 4, 22, COL_TEXT, 2);
 
     ui->beam_track = make_panel(ui->action, 34, 40, 160, 10, COL_TILE, 5);
     ui->beam_fill = make_panel(ui->beam_track, 0, 2, 0, 6, COL_DANGER, 3);
 
-    ui->flash = make_panel(ui->arena, 0, 0, ARENA_W, ARENA_H, COL_TEXT, 0);
-    lv_obj_set_style_bg_opa(ui->flash, LV_OPA_TRANSP, 0);
+    for (int i = 0; i < POPUP_COUNT; i++) {
+        ui->popup[i] = make_center(ui->arena, 0, 0, 54, "", &app_font_20,
+                                   COL_TEXT);
+        lv_obj_set_style_text_opa(ui->popup[i], LV_OPA_COVER, 0);
+        set_hidden(ui->popup[i], true);
+    }
 
     page_switch(scr);
     s_app.previous_pose = -1;
@@ -1047,7 +1440,47 @@ static void build_battle(void)
     s_app.notice[0] = '\0';
     s_app.notice_until_us = 0;
     s_app.last_tick_us = esp_timer_get_time();
-    refresh_battle_sprites();
+
+    s_app.monster_hp_seen = s_app.battle.monster_hp;
+    s_app.hero_hp_seen = s_app.battle.hero_hp;
+    s_app.monster_hp_goal = s_app.battle.monster_hp;
+    s_app.hero_hp_goal = s_app.battle.hero_hp;
+    s_app.monster_hp_disp_x10 = (int32_t)s_app.battle.monster_hp * 10;
+    s_app.hero_hp_disp_x10 = (int32_t)s_app.battle.hero_hp * 10;
+    s_app.gauge_disp_x10 = (int32_t)s_app.battle.gauge * 10;
+    s_app.impact_kind = IMPACT_NONE;
+    s_app.impact_at_us = 0;
+    s_app.impact_damage = 0;
+    s_app.hero_attack_missed = false;
+    s_app.buffered_move = 0;
+    s_app.prev_phase = s_app.battle.phase;
+    s_app.action_offset = ACTION_H;
+    s_app.action_target_hidden = true;
+    lv_obj_set_pos(s_app.battle_ui.action, ACTION_X, ACTION_Y + ACTION_H);
+    memset(s_app.popup, 0, sizeof(s_app.popup));
+    s_app.popup_next = 0;
+
+    s_app.ui_monster_hp = -1;
+    s_app.ui_gauge = -1;
+    s_app.ui_timer_value = -1;
+    s_app.ui_timer_total = -1;
+    s_app.ui_timer_color = 0xFFFFFFFFu;
+    memset(s_app.row_sig, 0xFF, sizeof(s_app.row_sig));
+    memset(s_app.row_value, 0xFF, sizeof(s_app.row_value));
+    s_app.ui_hero_x = -32768;
+    s_app.ui_hero_y = -32768;
+    s_app.ui_monster_x = -32768;
+    s_app.ui_monster_y = -32768;
+    s_app.ui_hero_flash = 0xFF;
+    s_app.ui_monster_flash = 0xFF;
+    s_app.ui_shake_x = 0;
+    s_app.ui_shake_y = 0;
+    s_app.ui_beam_visible = false;
+    s_app.ui_flash_visible = false;
+    s_app.ui_crit_left = -1;
+    s_app.ui_crit_width = -1;
+    s_app.ui_beam_fill = -1;
+
     refresh_battle();
 }
 
@@ -1200,10 +1633,15 @@ static void end_battle_to_page(page_t page)
     }
 }
 
-static void set_notice(const char *text)
+static void set_notice_ms(const char *text, int64_t duration_us)
 {
     snprintf(s_app.notice, sizeof(s_app.notice), "%s", text);
-    s_app.notice_until_us = esp_timer_get_time() + 1600000LL;
+    s_app.notice_until_us = esp_timer_get_time() + duration_us;
+}
+
+static void set_notice(const char *text)
+{
+    set_notice_ms(text, 1600000LL);
 }
 
 static void handle_battle_event(battle_event_t event)
@@ -1221,43 +1659,62 @@ static void handle_battle_event(battle_event_t event)
         s_app.feedback_wrong = 0xFF;
         break;
     case BATTLE_EV_WRONG:
-    case BATTLE_EV_TIMEOUT:
+    case BATTLE_EV_TIMEOUT: {
         audio_player_play(SFX_WRONG);
-        audio_player_play(SFX_HURT);
+        audio_player_play(SFX_GROWL);
         s_app.feedback_correct = battle->question.correct_index;
         s_app.feedback_wrong = event == BATTLE_EV_WRONG ? battle->cursor : 0xFF;
-        s_app.hero_flash_until_us = now + 260000;
-        s_app.arena_flash_until_us = now + 100000;
+        const int damage = (int)s_app.hero_hp_seen - (int)battle->hero_hp;
+        schedule_impact(IMPACT_ENEMY, damage);
         break;
-    case BATTLE_EV_CRITICAL_HIT:
+    }
+    case BATTLE_EV_CRITICAL_HIT: {
+        audio_player_play(SFX_SWING);
         audio_player_play(SFX_CRITICAL);
-        audio_player_play(SFX_HIT);
-        s_app.monster_flash_until_us = now + 320000;
-        s_app.arena_flash_until_us = now + 90000;
+        s_app.hero_attack_missed = false;
+        const int damage = (int)s_app.monster_hp_seen - (int)battle->monster_hp;
+        schedule_impact(IMPACT_HERO_HIT, damage);
         break;
-    case BATTLE_EV_CRITICAL_MISS:
-        audio_player_play(SFX_HIT);
-        s_app.monster_flash_until_us = now + 140000;
+    }
+    case BATTLE_EV_CRITICAL_PERFECT: {
+        audio_player_play(SFX_SWING);
+        audio_player_play(SFX_CRITICAL);
+        s_app.hero_attack_missed = false;
+        const int damage = (int)s_app.monster_hp_seen - (int)battle->monster_hp;
+        schedule_impact(IMPACT_HERO_PERFECT, damage);
         break;
+    }
+    case BATTLE_EV_CRITICAL_MISS: {
+        audio_player_play(SFX_SWING);
+        s_app.hero_attack_missed = true;
+        const int damage = (int)s_app.monster_hp_seen - (int)battle->monster_hp;
+        schedule_impact(IMPACT_HERO_MISS, damage);
+        break;
+    }
     case BATTLE_EV_ATTACK_DONE:
     case BATTLE_EV_ENEMY_DONE:
         s_app.feedback_correct = 0xFF;
         s_app.feedback_wrong = 0xFF;
+        s_app.hero_attack_missed = false;
         break;
-    case BATTLE_EV_ULTIMATE_START:
+    case BATTLE_EV_ULTIMATE_START: {
         audio_player_play(SFX_CHARGE);
         set_notice("必杀技发动!");
+        const int damage = (int)s_app.monster_hp_seen - (int)battle->monster_hp;
+        schedule_impact(IMPACT_ULTIMATE, damage);
         break;
+    }
     case BATTLE_EV_ULTIMATE_DONE:
         break;
     case BATTLE_EV_MONSTER_DEFEATED:
         audio_player_play(SFX_MONSTER_DOWN);
-        s_app.monster_flash_until_us = now + 700000;
+        s_app.monster_hp_goal = battle->monster_hp;
         s_app.arena_flash_until_us = now + 180000;
         set_notice("怪兽被击败!");
         break;
     case BATTLE_EV_HERO_DEFEATED:
         audio_player_play(SFX_DEFEAT);
+        s_app.hero_hp_goal = battle->hero_hp;
         show_overlay(OVERLAY_OVER);
         break;
     case BATTLE_EV_STAGE_CLEAR:
@@ -1274,13 +1731,15 @@ static void handle_battle_event(battle_event_t event)
         break;
     case BATTLE_EV_BEAM_WIN:
         audio_player_play(SFX_MONSTER_DOWN);
-        s_app.monster_flash_until_us = now + 800000;
+        s_app.monster_hp_goal = battle->monster_hp;
         s_app.arena_flash_until_us = now + 220000;
         set_notice("光线压制成功!");
         break;
     case BATTLE_EV_BEAM_LOSE:
         audio_player_play(SFX_HURT);
-        s_app.hero_flash_until_us = now + 300000;
+        s_app.hero_hp_goal = battle->hero_hp;
+        s_app.monster_hp_goal = battle->monster_hp;
+        s_app.arena_flash_until_us = now + 140000;
         set_notice("光线被压制!怪兽还剩2点血");
         break;
     case BATTLE_EV_HINT:
@@ -1293,6 +1752,9 @@ static void handle_battle_event(battle_event_t event)
     default:
         break;
     }
+
+    s_app.hero_hp_seen = battle->hero_hp;
+    s_app.monster_hp_seen = battle->monster_hp;
 }
 
 static void tick_battle(void)
@@ -1303,11 +1765,37 @@ static void tick_battle(void)
     if (elapsed > 250) {
         elapsed = 250;
     }
+    if (elapsed == 0) {
+        elapsed = 1;
+    }
+
+    const uint8_t before = s_app.battle.phase;
     const battle_event_t event = battle_tick(&s_app.battle, elapsed);
     if (event != BATTLE_EV_NONE) {
         handle_battle_event(event);
     }
-    refresh_battle();
+
+    // A direction pressed during the last 150 ms of an exchange selects an
+    // answer as soon as the next question appears.
+    if (s_app.battle.phase == BATTLE_PHASE_QUESTION &&
+        before != BATTLE_PHASE_QUESTION && s_app.buffered_move != 0) {
+        battle_event_t move = battle_move_cursor(&s_app.battle, 1);
+        if (s_app.buffered_move > 0) {
+            move = battle_move_cursor(&s_app.battle, s_app.buffered_move);
+        }
+        handle_battle_event(move);
+        s_app.buffered_move = 0;
+    }
+    // The buffer only makes sense for the exchange it was captured in. Drop it
+    // when the round diverts into a crit, ultimate, beam, result or pause.
+    if (s_app.battle.phase != BATTLE_PHASE_QUESTION &&
+        s_app.battle.phase != BATTLE_PHASE_ATTACK &&
+        s_app.battle.phase != BATTLE_PHASE_ENEMY) {
+        s_app.buffered_move = 0;
+    }
+
+    s_app.prev_phase = s_app.battle.phase;
+    refresh_battle_with_dt(elapsed);
 }
 
 // ---------------------------------------------------------------------------
@@ -1462,6 +1950,17 @@ static void handle_battle_key(bsp_btn_t btn, bsp_btn_ev_t event)
             }
             audio_player_play(SFX_CONFIRM);
         }
+        return;
+    }
+
+    // Buffer a direction during the last 150 ms of the exchange. The move is
+    // applied when the next question becomes active.
+    if ((s_app.battle.phase == BATTLE_PHASE_ATTACK ||
+         s_app.battle.phase == BATTLE_PHASE_ENEMY) &&
+        event == BSP_BTN_CLICK && (btn == BSP_BTN_UP || btn == BSP_BTN_DOWN) &&
+        s_app.battle.phase_ms <= INPUT_BUFFER_MS) {
+        s_app.buffered_move = btn == BSP_BTN_UP ? -1 : 1;
+        audio_player_play(SFX_MOVE);
         return;
     }
 

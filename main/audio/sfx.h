@@ -19,6 +19,9 @@ typedef enum {
     SFX_VICTORY,
     SFX_DEFEAT,
     SFX_PAUSE,
+    // Procedurally synthesised cues live in sfx_extra.c.
+    SFX_SWING,
+    SFX_GROWL,
     SFX_COUNT,
 } sfx_id_t;
 

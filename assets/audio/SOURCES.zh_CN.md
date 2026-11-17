@@ -24,6 +24,8 @@
 | `SFX_VICTORY` | Music Jingles | `jingles_PIZZI10.ogg` |
 | `SFX_DEFEAT` | Music Jingles | `jingles_NES05.ogg` |
 | `SFX_PAUSE` | Interface Sounds | `back_002.ogg` |
+| `SFX_SWING` | 程序合成 | `tools/build_sfx_extra.py` |
+| `SFX_GROWL` | 程序合成 | `tools/build_sfx_extra.py` |
 
 音效包：<https://kenney.nl/assets/interface-sounds>、
 <https://kenney.nl/assets/impact-sounds>、
@@ -37,6 +39,12 @@
 
 ```bash
 python tools/build_sfx.py --source-dir /path/to/extracted/kenney
+```
+
+两个战斗节奏音效不使用外部素材,由脚本直接合成:
+
+```bash
+python tools/build_sfx_extra.py
 ```
 
 每个片段都会按上限裁剪、峰值归一化到 -3 dBFS，并加入 5 ms 淡入淡出，

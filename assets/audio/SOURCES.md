@@ -25,6 +25,8 @@ keeps the provenance auditable.
 | `SFX_VICTORY` | Music Jingles | `jingles_PIZZI10.ogg` |
 | `SFX_DEFEAT` | Music Jingles | `jingles_NES05.ogg` |
 | `SFX_PAUSE` | Interface Sounds | `back_002.ogg` |
+| `SFX_SWING` | Procedural | `tools/build_sfx_extra.py` |
+| `SFX_GROWL` | Procedural | `tools/build_sfx_extra.py` |
 
 Packs: <https://kenney.nl/assets/interface-sounds>,
 <https://kenney.nl/assets/impact-sounds>,
@@ -38,6 +40,12 @@ To regenerate the embedded table:
 
 ```bash
 python tools/build_sfx.py --source-dir /path/to/extracted/kenney
+```
+
+The two combat-timing cues are synthesised without external samples:
+
+```bash
+python tools/build_sfx_extra.py
 ```
 
 Each clip is trimmed to a maximum length, peak-normalised to -3 dBFS, and given

@@ -123,15 +123,19 @@ static battle_event_t enter_defeat_or_clear(battle_t *battle)
     return BATTLE_EV_MONSTER_DEFEATED;
 }
 
-static battle_event_t resolve_critical(battle_t *battle, bool hit)
+static battle_event_t resolve_critical(battle_t *battle, bool hit, bool perfect)
 {
     int damage = 1;
+    battle->crit_perfect = perfect;
     if (hit) {
-        damage = 2;
+        damage = perfect ? 3 : 2;
         if (campaign_hero(battle->hero)->perk == HERO_PERK_CRIT_DAMAGE) {
-            damage = 3;
+            damage++;
         }
         battle->score += 100;
+        if (perfect) {
+            battle->score += 150;
+        }
         add_gauge(battle, gauge_gain(battle, 4));
     }
     if (damage >= (int)battle->monster_hp) {
@@ -141,7 +145,10 @@ static battle_event_t resolve_critical(battle_t *battle, bool hit)
     }
     battle->phase = BATTLE_PHASE_ATTACK;
     battle->phase_ms = BATTLE_ATTACK_MS;
-    return hit ? BATTLE_EV_CRITICAL_HIT : BATTLE_EV_CRITICAL_MISS;
+    if (!hit) {
+        return BATTLE_EV_CRITICAL_MISS;
+    }
+    return perfect ? BATTLE_EV_CRITICAL_PERFECT : BATTLE_EV_CRITICAL_HIT;
 }
 
 static battle_event_t answer_wrong(battle_t *battle, battle_event_t event)
@@ -219,17 +226,36 @@ battle_event_t battle_confirm(battle_t *battle)
             battle->phase = BATTLE_PHASE_CRITICAL;
             battle->phase_ms = BATTLE_CRITICAL_MS;
             battle->crit_marker = 0;
+            battle->crit_perfect = false;
+            battle->crit_bonus = false;
+            battle->crit_window_effective = battle->crit_window;
+            // Answering with at least 60% of the clock left widens the
+            // critical window by 25%: fast answers are rewarded with a
+            // larger timing target.
+            if (battle->question_ms > 0 &&
+                battle->question_remaining_ms * 10 >= battle->question_ms * 6) {
+                const uint16_t widened = (uint16_t)battle->crit_window * 5u / 4u;
+                battle->crit_window_effective =
+                    (uint8_t)(widened > 100u ? 100u : widened);
+                battle->crit_bonus = true;
+            }
+            const uint8_t half = (uint8_t)(battle->crit_window_effective / 2u);
             battle->crit_center = (uint8_t)rng_range(
-                &battle->rng, battle->crit_window / 2u,
-                100u - battle->crit_window / 2u);
+                &battle->rng, half, 100u - half);
             return BATTLE_EV_CORRECT;
         }
         return answer_wrong(battle, BATTLE_EV_WRONG);
     }
     if (battle->phase == BATTLE_PHASE_CRITICAL) {
-        const int half = battle->crit_window / 2;
+        const int half = battle->crit_window_effective / 2;
+        const int perfect_half = battle->crit_window_effective / 4;
         const int diff = (int)battle->crit_marker - (int)battle->crit_center;
-        return resolve_critical(battle, diff >= -half && diff <= half);
+        const int distance = diff < 0 ? -diff : diff;
+        if (distance > half) {
+            return resolve_critical(battle, false, false);
+        }
+        // The inner half of the window is perfect: more damage and score.
+        return resolve_critical(battle, true, distance <= perfect_half);
     }
     if (battle->phase == BATTLE_PHASE_BEAM) {
         uint16_t force = (uint16_t)battle->beam_force + 12u;
@@ -281,7 +307,7 @@ battle_event_t battle_tick(battle_t *battle, uint32_t elapsed_ms)
 
     switch (battle->phase) {
     case BATTLE_PHASE_CRITICAL:
-        return resolve_critical(battle, false);
+        return resolve_critical(battle, false, false);
     case BATTLE_PHASE_ATTACK: {
         const battle_event_t event = enter_defeat_or_clear(battle);
         if (event != BATTLE_EV_NONE) {
@@ -390,7 +416,7 @@ uint8_t battle_stars(const battle_t *battle)
 
 uint8_t battle_crit_half_window(const battle_t *battle)
 {
-    return (uint8_t)(battle->crit_window / 2u);
+    return (uint8_t)(battle->crit_window_effective / 2u);
 }
 
 const stage_def_t *battle_stage_def(const battle_t *battle)
