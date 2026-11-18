@@ -6,6 +6,7 @@ idf_component_register(
          "core/beam_rhythm.c"
          "core/campaign.c"
          "core/math_question.c"
+         "core/review.c"
          "core/ultimate.c"
          "audio/audio_player.c"
          "audio/sfx.c"

@@ -89,11 +89,22 @@ static void next_question(battle_t *battle)
     battle->phase_ms = 0;
     battle->cursor = BATTLE_CURSOR_NONE;
 
-    math_question_generate(&battle->question,
-                           campaign_stage(battle->stage)->math_stage,
-                           battle->assist_active, &battle->rng,
-                           battle->history, battle->history_count);
+    // Wrong-answer reviews replace the 2nd and 5th question so the player has
+    // settled into the round before seeing a familiar expression again.
+    const bool review_slot =
+        battle->question_index == 1 || battle->question_index == 4;
+    if (review_slot && battle->review_used < battle->review_count) {
+        battle->question = battle->review[battle->review_used++];
+        battle->current_review = true;
+    } else {
+        math_question_generate(&battle->question,
+                               campaign_stage(battle->stage)->math_stage,
+                               battle->assist_active, &battle->rng,
+                               battle->history, battle->history_count);
+        battle->current_review = false;
+    }
     record_history(battle);
+    battle->question_index++;
 }
 
 static bool apply_enemy_hit(battle_t *battle)
@@ -220,7 +231,7 @@ static battle_event_t answer_wrong(battle_t *battle, battle_event_t event)
 
     // The late-game ambush stages turn a mistake into a short block prompt
     // instead of immediate damage.
-    if (battle->hero_hp > 0 &&
+    if (battle->hero_hp > 0 && !battle->low_age &&
         campaign_stage_has_rule(battle->stage, STAGE_RULE_GUARD_QTE)) {
         battle->phase = BATTLE_PHASE_GUARD;
         battle->phase_ms = BATTLE_GUARD_MS;
@@ -261,6 +272,37 @@ void battle_start(battle_t *battle, uint8_t stage, uint8_t difficulty, uint8_t h
     next_question(battle);
 }
 
+void battle_queue_review(battle_t *battle, const math_question_t *questions,
+                         uint8_t count)
+{
+    if (questions == NULL) {
+        count = 0;
+    }
+    if (count > BATTLE_REVIEW_SLOTS) {
+        count = BATTLE_REVIEW_SLOTS;
+    }
+    battle->review_count = count;
+    battle->review_used = 0;
+    for (uint8_t i = 0; i < count; i++) {
+        battle->review[i] = questions[i];
+    }
+}
+
+bool battle_question_is_review(const battle_t *battle)
+{
+    return battle->current_review;
+}
+
+void battle_set_low_age(battle_t *battle, bool low_age)
+{
+    battle->low_age = low_age;
+}
+
+bool battle_low_age(const battle_t *battle)
+{
+    return battle->low_age;
+}
+
 battle_event_t battle_move_cursor(battle_t *battle, int delta)
 {
     if (battle->phase != BATTLE_PHASE_QUESTION || delta == 0) {
@@ -293,8 +335,15 @@ battle_event_t battle_confirm(battle_t *battle)
             }
             battle->correct_count++;
             battle->miss_streak = 0;
-            battle->score += 100 + (int32_t)battle->combo * 20 +
-                             battle->question_remaining_ms / 100;
+            int32_t gain = 100 + (int32_t)battle->combo * 20 +
+                           battle->question_remaining_ms / 100;
+            if (battle->current_review) {
+                // Reviews deliberately pay more: getting an old mistake right
+                // is the behaviour the loop wants to reinforce.
+                gain += gain / 2;
+                add_gauge(battle, 1);
+            }
+            battle->score += gain;
             add_gauge(battle, gauge_gain(battle, 4));
             if (campaign_stage_has_rule(battle->stage, STAGE_RULE_FAST_GAUGE)) {
                 add_gauge(battle, 1);
@@ -314,6 +363,12 @@ battle_event_t battle_confirm(battle_t *battle)
                 battle->crit_window_effective =
                     (uint8_t)(widened > 100u ? 100u : widened);
                 battle->crit_bonus = true;
+            }
+            if (battle->low_age) {
+                const uint16_t widened =
+                    (uint16_t)battle->crit_window_effective * 5u / 4u;
+                battle->crit_window_effective =
+                    (uint8_t)(widened > 100u ? 100u : widened);
             }
             const uint8_t half = (uint8_t)(battle->crit_window_effective / 2u);
             battle->crit_center = (uint8_t)rng_range(

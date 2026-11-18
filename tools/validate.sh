@@ -52,6 +52,10 @@ run_static_checks() {
         -o "${test_dir}/test_battle"
     "${test_dir}/test_battle"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain/core \
+        tests/test_review.c main/core/review.c main/core/math_question.c \
+        -o "${test_dir}/test_review"
+    "${test_dir}/test_review"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain/core \
         tests/test_beam_rhythm.c main/core/beam_rhythm.c \
         -o "${test_dir}/test_beam_rhythm"
     "${test_dir}/test_beam_rhythm"

@@ -667,6 +667,78 @@ static void test_combo_pursuit_and_finisher(void)
     assert(99 - b.monster_hp == 14);
 }
 
+static void test_review_injection_and_bonus(void)
+{
+    battle_t b;
+    battle_start(&b, 0, 1, 0, 4242);
+    b.monster_hp = 99;
+    b.monster_hp_max = 99;
+
+    math_question_t review[BATTLE_REVIEW_SLOTS];
+    memset(review, 0, sizeof(review));
+    for (int i = 0; i < BATTLE_REVIEW_SLOTS; i++) {
+        snprintf(review[i].text, sizeof(review[i].text), "复习%d", i + 1);
+        review[i].options[0] = (int16_t)(i + 1);
+        review[i].options[1] = (int16_t)(i + 2);
+        review[i].options[2] = (int16_t)(i + 3);
+        review[i].answer = (int16_t)(i + 1);
+        review[i].correct_index = 0;
+        review[i].kind = QUESTION_ADD;
+        review[i].math_stage = 1;
+    }
+    battle_queue_review(&b, review, BATTLE_REVIEW_SLOTS);
+    assert(!battle_question_is_review(&b));
+
+    // The first review replaces the second question.
+    answer_correct(&b);
+    crit_hit(&b);
+    finish_attack(&b);
+    assert(b.phase == BATTLE_PHASE_QUESTION);
+    assert(battle_question_is_review(&b));
+    assert(strcmp(b.question.text, "复习1") == 0);
+
+    const int32_t before = b.score;
+    answer_correct(&b);
+    const int32_t expected =
+        (100 + (int32_t)b.combo * 20 + b.question_remaining_ms / 100) * 3 / 2;
+    assert(b.score - before == expected);
+
+    // Two more exchanges bring the fifth question, which carries review two.
+    for (int i = 0; i < 2; i++) {
+        crit_hit(&b);
+        finish_attack(&b);
+        answer_correct(&b);
+    }
+    crit_hit(&b);
+    finish_attack(&b);
+    assert(b.phase == BATTLE_PHASE_QUESTION);
+    assert(battle_question_is_review(&b));
+    assert(strcmp(b.question.text, "复习2") == 0);
+}
+
+static void test_low_age_hides_guard_and_widens_crit(void)
+{
+    battle_t b;
+    battle_start(&b, 5, 1, 0, 5555);
+    battle_set_low_age(&b, true);
+    assert(battle_low_age(&b));
+    b.cursor = b.question.correct_index == 0 ? 1 : 0;
+    assert(battle_confirm(&b) == BATTLE_EV_WRONG);
+    assert(b.phase == BATTLE_PHASE_ENEMY);
+
+    battle_t normal;
+    battle_start(&normal, 0, 1, 0, 6666);
+    answer_correct(&normal);
+    const uint8_t fast_window = normal.crit_window_effective;
+
+    battle_t low;
+    battle_start(&low, 0, 1, 0, 6666);
+    battle_set_low_age(&low, true);
+    answer_correct(&low);
+    assert(low.crit_window_effective > fast_window);
+    assert(low.crit_window_effective == 62);  // 40 -> 50 (fast) -> 62 (low age)
+}
+
 static void test_pause_resume(void)
 {
     battle_t b;
@@ -730,6 +802,8 @@ int main(void)
     test_fast_gauge_stage();
     test_enrage_stage();
     test_combo_pursuit_and_finisher();
+    test_review_injection_and_bonus();
+    test_low_age_hides_guard_and_widens_crit();
     test_pause_resume();
     test_history_avoids_repeats();
     puts("test_battle: PASS");

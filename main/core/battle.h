@@ -10,6 +10,7 @@
 #include "ultimate.h"
 
 #define BATTLE_GAUGE_MAX 20
+#define BATTLE_REVIEW_SLOTS 2
 #define BATTLE_CRITICAL_MS 800
 #define BATTLE_ATTACK_MS 520
 #define BATTLE_ENEMY_MS 760
@@ -94,9 +95,11 @@ typedef struct {
     bool clear_reported;
     bool armor_broken;
     bool enraged;
-    // Presentation flags for the attack that just resolved.
+    // Presentation and accessibility flags.
     bool crit_pursuit;
     bool combo_finisher;
+    bool low_age;
+    bool current_review;
 
     int32_t phase_ms;
     int32_t question_ms;
@@ -106,6 +109,10 @@ typedef struct {
     math_question_t question;
     math_question_t history[MATH_QUESTION_HISTORY];
     uint8_t history_count;
+    uint8_t question_index;
+    math_question_t review[BATTLE_REVIEW_SLOTS];
+    uint8_t review_count;
+    uint8_t review_used;
     math_rng_t rng;
 
     uint8_t crit_marker;
@@ -137,6 +144,14 @@ battle_event_t battle_ultimate_press(battle_t *battle, uint8_t input);
 battle_event_t battle_guard_press(battle_t *battle, uint8_t input);
 void battle_pause(battle_t *battle);
 void battle_resume(battle_t *battle);
+
+// Queues up to BATTLE_REVIEW_SLOTS questions that replace the 2nd and 5th
+// question of the battle. Call after battle_start().
+void battle_queue_review(battle_t *battle, const math_question_t *questions,
+                         uint8_t count);
+bool battle_question_is_review(const battle_t *battle);
+void battle_set_low_age(battle_t *battle, bool low_age);
+bool battle_low_age(const battle_t *battle);
 
 bool battle_can_ultimate(const battle_t *battle);
 bool battle_is_over(const battle_t *battle);
