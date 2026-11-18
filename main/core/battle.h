@@ -4,14 +4,16 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "beam_rhythm.h"
 #include "campaign.h"
 #include "math_question.h"
+#include "ultimate.h"
 
 #define BATTLE_GAUGE_MAX 20
 #define BATTLE_CRITICAL_MS 800
 #define BATTLE_ATTACK_MS 520
 #define BATTLE_ENEMY_MS 760
-#define BATTLE_ULTIMATE_MS 1600
+#define BATTLE_GUARD_MS 1100
 #define BATTLE_BEAM_MS 3000
 #define BATTLE_CLEAR_MS 1200
 
@@ -20,6 +22,7 @@ typedef enum {
     BATTLE_PHASE_CRITICAL,
     BATTLE_PHASE_ATTACK,
     BATTLE_PHASE_ENEMY,
+    BATTLE_PHASE_GUARD,
     BATTLE_PHASE_ULTIMATE,
     BATTLE_PHASE_BEAM,
     BATTLE_PHASE_CLEAR,
@@ -39,12 +42,20 @@ typedef enum {
     BATTLE_EV_ATTACK_DONE,
     BATTLE_EV_ENEMY_DONE,
     BATTLE_EV_ULTIMATE_START,
+    BATTLE_EV_ULTIMATE_HIT,
+    BATTLE_EV_ULTIMATE_PERFECT,
+    BATTLE_EV_ULTIMATE_MISS,
     BATTLE_EV_ULTIMATE_DONE,
+    BATTLE_EV_GUARD_START,
+    BATTLE_EV_GUARD_BLOCK,
+    BATTLE_EV_GUARD_FAIL,
     BATTLE_EV_MONSTER_DEFEATED,
     BATTLE_EV_HERO_DEFEATED,
     BATTLE_EV_STAGE_CLEAR,
     BATTLE_EV_BEAM_START,
-    BATTLE_EV_BEAM_PRESS,
+    BATTLE_EV_BEAM_PERFECT,
+    BATTLE_EV_BEAM_HIT,
+    BATTLE_EV_BEAM_MISS,
     BATTLE_EV_BEAM_WIN,
     BATTLE_EV_BEAM_LOSE,
     BATTLE_EV_HINT,
@@ -81,6 +92,11 @@ typedef struct {
     bool shield_used;
     bool hint_used;
     bool clear_reported;
+    bool armor_broken;
+    bool enraged;
+    // Presentation flags for the attack that just resolved.
+    bool crit_pursuit;
+    bool combo_finisher;
 
     int32_t phase_ms;
     int32_t question_ms;
@@ -101,8 +117,12 @@ typedef struct {
     bool crit_bonus;
     bool crit_perfect;
 
-    uint8_t beam_force;
-    uint16_t beam_presses;
+    uint16_t beam_elapsed_ms;
+    uint8_t guard_dir;      // 0 = up, 1 = down
+    bool guard_resolved;
+
+    beam_rhythm_t beam;
+    ultimate_t ult;
 } battle_t;
 
 void battle_start(battle_t *battle, uint8_t stage, uint8_t difficulty, uint8_t hero,
@@ -113,6 +133,8 @@ battle_event_t battle_confirm(battle_t *battle);
 battle_event_t battle_tick(battle_t *battle, uint32_t elapsed_ms);
 battle_event_t battle_use_hint(battle_t *battle);
 battle_event_t battle_use_ultimate(battle_t *battle);
+battle_event_t battle_ultimate_press(battle_t *battle, uint8_t input);
+battle_event_t battle_guard_press(battle_t *battle, uint8_t input);
 void battle_pause(battle_t *battle);
 void battle_resume(battle_t *battle);
 
@@ -123,3 +145,19 @@ uint8_t battle_crit_half_window(const battle_t *battle);
 const stage_def_t *battle_stage_def(const battle_t *battle);
 const hero_def_t *battle_hero_def(const battle_t *battle);
 const difficulty_def_t *battle_difficulty_def(const battle_t *battle);
+
+uint8_t battle_beam_force(const battle_t *battle);
+uint8_t battle_beam_beats_left(const battle_t *battle);
+uint16_t battle_beam_elapsed_ms(const battle_t *battle);
+uint32_t battle_beam_next_beat_ms(const battle_t *battle);
+uint32_t battle_beam_beat_ms(uint8_t index);
+
+uint8_t battle_ultimate_steps(const battle_t *battle);
+uint8_t battle_ultimate_step(const battle_t *battle);
+uint8_t battle_ultimate_hits(const battle_t *battle);
+uint8_t battle_ultimate_input(const battle_t *battle);
+uint16_t battle_ultimate_step_remaining_ms(const battle_t *battle);
+uint16_t battle_ultimate_total_ms(const battle_t *battle);
+
+uint16_t battle_guard_remaining_ms(const battle_t *battle);
+uint8_t battle_guard_dir(const battle_t *battle);

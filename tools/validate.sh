@@ -47,9 +47,18 @@ run_static_checks() {
         -o "${test_dir}/test_campaign"
     "${test_dir}/test_campaign"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain/core \
-        tests/test_battle.c main/core/battle.c main/core/campaign.c \
-        main/core/math_question.c -o "${test_dir}/test_battle"
+        tests/test_battle.c main/core/battle.c main/core/beam_rhythm.c \
+        main/core/campaign.c main/core/math_question.c main/core/ultimate.c \
+        -o "${test_dir}/test_battle"
     "${test_dir}/test_battle"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain/core \
+        tests/test_beam_rhythm.c main/core/beam_rhythm.c \
+        -o "${test_dir}/test_beam_rhythm"
+    "${test_dir}/test_beam_rhythm"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain/core \
+        tests/test_ultimate.c main/core/ultimate.c main/core/campaign.c \
+        -o "${test_dir}/test_ultimate"
+    "${test_dir}/test_ultimate"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain/core \
         tests/test_anim.c main/core/anim.c -o "${test_dir}/test_anim"
     "${test_dir}/test_anim"

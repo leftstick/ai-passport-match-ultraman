@@ -60,6 +60,12 @@ static uint16_t current_question_ms(const battle_t *battle)
     if (battle->last_stand_bonus) {
         ms += 1000;
     }
+    // The final boss gets faster below half health. This is computed from the
+    // live HP so it can flip mid-stage without extra bookkeeping.
+    if (campaign_stage_has_rule(battle->stage, STAGE_RULE_ENRAGE) &&
+        battle->monster_hp * 2 <= battle->monster_hp_max) {
+        ms -= 1000;
+    }
     if (ms < 2000) {
         ms = 2000;
     }
@@ -72,6 +78,9 @@ static uint16_t current_question_ms(const battle_t *battle)
 static void next_question(battle_t *battle)
 {
     battle->assist_active = battle->miss_streak >= 2;
+    battle->enraged =
+        campaign_stage_has_rule(battle->stage, STAGE_RULE_ENRAGE) &&
+        battle->monster_hp * 2 <= battle->monster_hp_max;
     battle->question_ms = current_question_ms(battle);
     battle->question_remaining_ms = battle->question_ms;
     battle->last_stand_bonus = false;
@@ -103,6 +112,29 @@ static bool apply_enemy_hit(battle_t *battle)
     return true;
 }
 
+static void apply_monster_damage(battle_t *battle, int damage)
+{
+    if (damage <= 0) {
+        return;
+    }
+    if (damage >= (int)battle->monster_hp) {
+        battle->monster_hp = 0;
+    } else {
+        battle->monster_hp = (uint16_t)(battle->monster_hp - (uint16_t)damage);
+    }
+}
+
+static uint8_t beam_start_force(const battle_t *battle)
+{
+    // A clean blue ultimate leaves the boss beam already leaning the hero's
+    // way for the rhythm duel.
+    if (campaign_hero(battle->hero)->perk == HERO_PERK_GAUGE &&
+        ultimate_all_hit(&battle->ult)) {
+        return 25;
+    }
+    return 0;
+}
+
 static battle_event_t enter_defeat_or_clear(battle_t *battle)
 {
     if (battle->monster_hp > 0) {
@@ -111,8 +143,8 @@ static battle_event_t enter_defeat_or_clear(battle_t *battle)
     if (battle->boss) {
         battle->phase = BATTLE_PHASE_BEAM;
         battle->phase_ms = BATTLE_BEAM_MS;
-        battle->beam_force = 0;
-        battle->beam_presses = 0;
+        battle->beam_elapsed_ms = 0;
+        beam_rhythm_start(&battle->beam, beam_start_force(battle));
         return BATTLE_EV_BEAM_START;
     }
     battle->stars = calc_stars(battle);
@@ -125,8 +157,11 @@ static battle_event_t enter_defeat_or_clear(battle_t *battle)
 
 static battle_event_t resolve_critical(battle_t *battle, bool hit, bool perfect)
 {
-    int damage = 1;
     battle->crit_perfect = perfect;
+    battle->crit_pursuit = false;
+    battle->combo_finisher = false;
+
+    int damage = 1;
     if (hit) {
         damage = perfect ? 3 : 2;
         if (campaign_hero(battle->hero)->perk == HERO_PERK_CRIT_DAMAGE) {
@@ -137,12 +172,38 @@ static battle_event_t resolve_critical(battle_t *battle, bool hit, bool perfect)
             battle->score += 150;
         }
         add_gauge(battle, gauge_gain(battle, 4));
+
+        // Every third consecutive correct strike chains a pursuit hit. From
+        // six upward the finisher also pays gauge back.
+        if (battle->combo > 0 && battle->combo % 3 == 0) {
+            damage++;
+            battle->crit_pursuit = true;
+            battle->score += 50;
+        }
+        if (battle->combo >= 6 && battle->combo % 3 == 0) {
+            add_gauge(battle, gauge_gain(battle, 1));
+            battle->combo_finisher = true;
+        }
+
+        if (campaign_stage_has_rule(battle->stage, STAGE_RULE_HALF_NONCRIT) &&
+            !perfect && damage > 1) {
+            damage = 1;
+        }
+        if (campaign_stage_has_rule(battle->stage, STAGE_RULE_ARMOR_BREAK)) {
+            if (!battle->armor_broken) {
+                if (perfect) {
+                    // The perfect window is the only way through the armor.
+                    damage++;
+                    battle->armor_broken = true;
+                } else if (damage > 1) {
+                    damage = 1;
+                }
+            } else {
+                damage++;
+            }
+        }
     }
-    if (damage >= (int)battle->monster_hp) {
-        battle->monster_hp = 0;
-    } else {
-        battle->monster_hp = (uint16_t)(battle->monster_hp - (uint16_t)damage);
-    }
+    apply_monster_damage(battle, damage);
     battle->phase = BATTLE_PHASE_ATTACK;
     battle->phase_ms = BATTLE_ATTACK_MS;
     if (!hit) {
@@ -156,6 +217,18 @@ static battle_event_t answer_wrong(battle_t *battle, battle_event_t event)
     battle->combo = 0;
     battle->miss_streak++;
     battle->wrong_count++;
+
+    // The late-game ambush stages turn a mistake into a short block prompt
+    // instead of immediate damage.
+    if (battle->hero_hp > 0 &&
+        campaign_stage_has_rule(battle->stage, STAGE_RULE_GUARD_QTE)) {
+        battle->phase = BATTLE_PHASE_GUARD;
+        battle->phase_ms = BATTLE_GUARD_MS;
+        battle->guard_dir = (uint8_t)math_rng_below(&battle->rng, 2);
+        battle->guard_resolved = false;
+        return BATTLE_EV_GUARD_START;
+    }
+
     (void)apply_enemy_hit(battle);
     battle->phase = BATTLE_PHASE_ENEMY;
     battle->phase_ms = BATTLE_ENEMY_MS;
@@ -223,6 +296,9 @@ battle_event_t battle_confirm(battle_t *battle)
             battle->score += 100 + (int32_t)battle->combo * 20 +
                              battle->question_remaining_ms / 100;
             add_gauge(battle, gauge_gain(battle, 4));
+            if (campaign_stage_has_rule(battle->stage, STAGE_RULE_FAST_GAUGE)) {
+                add_gauge(battle, 1);
+            }
             battle->phase = BATTLE_PHASE_CRITICAL;
             battle->phase_ms = BATTLE_CRITICAL_MS;
             battle->crit_marker = 0;
@@ -258,13 +334,30 @@ battle_event_t battle_confirm(battle_t *battle)
         return resolve_critical(battle, true, distance <= perfect_half);
     }
     if (battle->phase == BATTLE_PHASE_BEAM) {
-        uint16_t force = (uint16_t)battle->beam_force + 12u;
-        if (force > 100u) {
-            force = 100u;
+        const beam_judge_t judge =
+            beam_rhythm_press(&battle->beam, battle->beam_elapsed_ms);
+        // The fifth beat settles the duel immediately. Missing the last beat
+        // must not leave the player waiting for the timer to drain.
+        if (beam_rhythm_beats_left(&battle->beam) == 0) {
+            if (beam_rhythm_won(&battle->beam)) {
+                battle->stars = calc_stars(battle);
+                battle->score += 800 + (int32_t)battle->hero_hp * 100;
+                battle->phase = BATTLE_PHASE_CLEAR;
+                battle->phase_ms = BATTLE_CLEAR_MS;
+                battle->clear_reported = false;
+                return BATTLE_EV_BEAM_WIN;
+            }
+            battle->monster_hp = 2;
+            next_question(battle);
+            return BATTLE_EV_BEAM_LOSE;
         }
-        battle->beam_force = (uint8_t)force;
-        battle->beam_presses++;
-        return BATTLE_EV_BEAM_PRESS;
+        if (judge == BEAM_JUDGE_PERFECT) {
+            return BATTLE_EV_BEAM_PERFECT;
+        }
+        if (judge == BEAM_JUDGE_HIT) {
+            return BATTLE_EV_BEAM_HIT;
+        }
+        return BATTLE_EV_BEAM_MISS;
     }
     return BATTLE_EV_NONE;
 }
@@ -285,13 +378,71 @@ battle_event_t battle_tick(battle_t *battle, uint32_t elapsed_ms)
         return BATTLE_EV_NONE;
     }
 
-    if (battle->phase == BATTLE_PHASE_BEAM) {
-        int32_t force = (int32_t)battle->beam_force -
-                        (int32_t)((elapsed_ms * 30u) / 1000u);
-        if (force < 0) {
-            force = 0;
+    if (battle->phase == BATTLE_PHASE_ULTIMATE) {
+        const ult_judge_t judge = ultimate_tick(&battle->ult, elapsed_ms);
+        if (battle->monster_hp == 0) {
+            battle->phase_ms = 0;
+            return enter_defeat_or_clear(battle);
         }
-        battle->beam_force = (uint8_t)force;
+        // Once every beat is spent only the release tail remains, so the
+        // cinematic does not keep the player waiting after an early finish.
+        if (ultimate_done(&battle->ult) &&
+            battle->phase_ms > (int32_t)ULT_TAIL_MS) {
+            battle->phase_ms = (int32_t)ULT_TAIL_MS;
+        }
+        if ((int32_t)elapsed_ms < battle->phase_ms) {
+            battle->phase_ms -= (int32_t)elapsed_ms;
+        } else {
+            battle->phase_ms = 0;
+        }
+        if (!ultimate_done(&battle->ult) || battle->phase_ms > 0) {
+            return judge == ULT_JUDGE_MISS ? BATTLE_EV_ULTIMATE_MISS
+                                           : BATTLE_EV_NONE;
+        }
+        // A clean run pays the hero's signature bonus.
+        if (ultimate_all_hit(&battle->ult)) {
+            const hero_perk_t perk = (hero_perk_t)campaign_hero(battle->hero)->perk;
+            if (perk == HERO_PERK_CRIT_DAMAGE) {
+                add_gauge(battle, 2);
+            } else if (perk == HERO_PERK_SHIELD) {
+                apply_monster_damage(battle, 2);
+                battle->shield_used = false;
+            }
+        }
+        battle->phase_ms = 0;
+        const battle_event_t event = enter_defeat_or_clear(battle);
+        if (event != BATTLE_EV_NONE) {
+            return event;
+        }
+        next_question(battle);
+        return BATTLE_EV_ULTIMATE_DONE;
+    }
+
+    if (battle->phase == BATTLE_PHASE_BEAM) {
+        uint32_t advance = elapsed_ms;
+        if ((uint32_t)battle->beam_elapsed_ms + advance > BATTLE_BEAM_MS) {
+            advance = BATTLE_BEAM_MS - battle->beam_elapsed_ms;
+        }
+        battle->beam_elapsed_ms =
+            (uint16_t)(battle->beam_elapsed_ms + advance);
+        beam_rhythm_tick(&battle->beam, advance);
+
+        if ((int32_t)elapsed_ms < battle->phase_ms) {
+            battle->phase_ms -= (int32_t)elapsed_ms;
+            return BATTLE_EV_NONE;
+        }
+        battle->phase_ms = 0;
+        if (beam_rhythm_won(&battle->beam)) {
+            battle->stars = calc_stars(battle);
+            battle->score += 800 + (int32_t)battle->hero_hp * 100;
+            battle->phase = BATTLE_PHASE_CLEAR;
+            battle->phase_ms = BATTLE_CLEAR_MS;
+            battle->clear_reported = false;
+            return BATTLE_EV_BEAM_WIN;
+        }
+        battle->monster_hp = 2;
+        next_question(battle);
+        return BATTLE_EV_BEAM_LOSE;
     }
 
     if ((int32_t)elapsed_ms < battle->phase_ms) {
@@ -316,33 +467,27 @@ battle_event_t battle_tick(battle_t *battle, uint32_t elapsed_ms)
         next_question(battle);
         return BATTLE_EV_ATTACK_DONE;
     }
-    case BATTLE_PHASE_ENEMY:
+    case BATTLE_PHASE_ENEMY: {
         if (battle->hero_hp == 0) {
             battle->phase = BATTLE_PHASE_OVER;
             return BATTLE_EV_HERO_DEFEATED;
         }
-        next_question(battle);
-        return BATTLE_EV_ENEMY_DONE;
-    case BATTLE_PHASE_ULTIMATE: {
+        // A violet reflected hit can finish the monster during the enemy turn.
         const battle_event_t event = enter_defeat_or_clear(battle);
         if (event != BATTLE_EV_NONE) {
             return event;
         }
         next_question(battle);
-        return BATTLE_EV_ULTIMATE_DONE;
+        return BATTLE_EV_ENEMY_DONE;
     }
-    case BATTLE_PHASE_BEAM:
-        if (battle->beam_force >= 35 || battle->beam_presses >= 6) {
-            battle->stars = calc_stars(battle);
-            battle->score += 800 + (int32_t)battle->hero_hp * 100;
-            battle->phase = BATTLE_PHASE_CLEAR;
-            battle->phase_ms = BATTLE_CLEAR_MS;
-            battle->clear_reported = false;
-            return BATTLE_EV_BEAM_WIN;
+    case BATTLE_PHASE_GUARD:
+        if (!battle->guard_resolved) {
+            battle->guard_resolved = true;
+            (void)apply_enemy_hit(battle);
+            battle->phase = BATTLE_PHASE_ENEMY;
+            battle->phase_ms = BATTLE_ENEMY_MS;
         }
-        battle->monster_hp = 2;
-        next_question(battle);
-        return BATTLE_EV_BEAM_LOSE;
+        return BATTLE_EV_GUARD_FAIL;
     case BATTLE_PHASE_CLEAR:
         if (!battle->clear_reported) {
             battle->clear_reported = true;
@@ -360,6 +505,10 @@ battle_event_t battle_use_hint(battle_t *battle)
         return BATTLE_EV_NONE;
     }
     battle->hint_used = true;
+    // The tutorial stage hands out hints without taxing the clock.
+    if (campaign_stage_has_rule(battle->stage, STAGE_RULE_HINT_FREE)) {
+        return BATTLE_EV_HINT;
+    }
     if (battle->question_remaining_ms > 1500) {
         battle->question_remaining_ms -= 1000;
     } else {
@@ -370,18 +519,58 @@ battle_event_t battle_use_hint(battle_t *battle)
 
 battle_event_t battle_use_ultimate(battle_t *battle)
 {
-    if (battle->phase != BATTLE_PHASE_QUESTION || battle->gauge < BATTLE_GAUGE_MAX) {
+    if (battle->phase != BATTLE_PHASE_QUESTION ||
+        battle->gauge < BATTLE_GAUGE_MAX) {
         return BATTLE_EV_NONE;
     }
     battle->gauge = 0;
-    if (battle->monster_hp <= 3) {
-        battle->monster_hp = 0;
-    } else {
-        battle->monster_hp = (uint16_t)(battle->monster_hp - 3);
-    }
+    battle->crit_pursuit = false;
+    battle->combo_finisher = false;
+    ultimate_start(&battle->ult, battle->hero);
     battle->phase = BATTLE_PHASE_ULTIMATE;
-    battle->phase_ms = BATTLE_ULTIMATE_MS;
+    battle->phase_ms = (int32_t)ultimate_total_ms(battle->hero);
     return BATTLE_EV_ULTIMATE_START;
+}
+
+battle_event_t battle_ultimate_press(battle_t *battle, uint8_t input)
+{
+    if (battle->phase != BATTLE_PHASE_ULTIMATE) {
+        return BATTLE_EV_NONE;
+    }
+    const ult_judge_t judge = ultimate_press(&battle->ult, input);
+    if (judge == ULT_JUDGE_NONE) {
+        return BATTLE_EV_NONE;
+    }
+    if (judge == ULT_JUDGE_MISS) {
+        return BATTLE_EV_ULTIMATE_MISS;
+    }
+
+    const bool perfect = judge == ULT_JUDGE_PERFECT;
+    const int damage = ultimate_step_damage(battle->hero, perfect);
+    apply_monster_damage(battle, damage);
+    battle->score += perfect ? 200 : 100;
+    return perfect ? BATTLE_EV_ULTIMATE_PERFECT : BATTLE_EV_ULTIMATE_HIT;
+}
+
+battle_event_t battle_guard_press(battle_t *battle, uint8_t input)
+{
+    if (battle->phase != BATTLE_PHASE_GUARD || battle->guard_resolved) {
+        return BATTLE_EV_NONE;
+    }
+    battle->guard_resolved = true;
+    const uint8_t want =
+        battle->guard_dir == 0 ? (uint8_t)ULT_INPUT_UP : (uint8_t)ULT_INPUT_DOWN;
+    if (input == want) {
+        apply_monster_damage(battle, 1);
+        battle->score += 80;
+        battle->phase = BATTLE_PHASE_ENEMY;
+        battle->phase_ms = BATTLE_ENEMY_MS;
+        return BATTLE_EV_GUARD_BLOCK;
+    }
+    (void)apply_enemy_hit(battle);
+    battle->phase = BATTLE_PHASE_ENEMY;
+    battle->phase_ms = BATTLE_ENEMY_MS;
+    return BATTLE_EV_GUARD_FAIL;
 }
 
 void battle_pause(battle_t *battle)
@@ -432,4 +621,72 @@ const hero_def_t *battle_hero_def(const battle_t *battle)
 const difficulty_def_t *battle_difficulty_def(const battle_t *battle)
 {
     return campaign_difficulty(battle->difficulty);
+}
+
+uint8_t battle_beam_force(const battle_t *battle)
+{
+    return battle->beam.force;
+}
+
+uint8_t battle_beam_beats_left(const battle_t *battle)
+{
+    return beam_rhythm_beats_left(&battle->beam);
+}
+
+uint16_t battle_beam_elapsed_ms(const battle_t *battle)
+{
+    return battle->beam_elapsed_ms;
+}
+
+uint32_t battle_beam_next_beat_ms(const battle_t *battle)
+{
+    return beam_rhythm_next_beat_ms(&battle->beam);
+}
+
+uint32_t battle_beam_beat_ms(uint8_t index)
+{
+    return beam_rhythm_beat_ms(index);
+}
+
+uint8_t battle_ultimate_steps(const battle_t *battle)
+{
+    return ultimate_steps(&battle->ult);
+}
+
+uint8_t battle_ultimate_step(const battle_t *battle)
+{
+    return ultimate_step_index(&battle->ult);
+}
+
+uint8_t battle_ultimate_hits(const battle_t *battle)
+{
+    return battle->ult.hits;
+}
+
+uint8_t battle_ultimate_input(const battle_t *battle)
+{
+    return ultimate_step_input(&battle->ult);
+}
+
+uint16_t battle_ultimate_step_remaining_ms(const battle_t *battle)
+{
+    return ultimate_step_remaining_ms(&battle->ult);
+}
+
+uint16_t battle_ultimate_total_ms(const battle_t *battle)
+{
+    return ultimate_total_ms(battle->hero);
+}
+
+uint16_t battle_guard_remaining_ms(const battle_t *battle)
+{
+    if (battle->phase_ms <= 0) {
+        return 0;
+    }
+    return battle->phase_ms > 65535 ? 65535 : (uint16_t)battle->phase_ms;
+}
+
+uint8_t battle_guard_dir(const battle_t *battle)
+{
+    return battle->guard_dir;
 }

@@ -18,28 +18,28 @@ static const hero_def_t HEROES[CAMPAIGN_HERO_COUNT] = {
 static const stage_def_t STAGES[CAMPAIGN_STAGE_COUNT] = {
     { .name = "街区警报", .monster_name = "尖刺兽", .domain = "20以内加减 · 2~5乘法",
       .sprite_name = "spiker", .math_stage = 1, .question_ms = 8000, .monster_hp = 4,
-      .boss = false },
+      .rules = STAGE_RULE_HINT_FREE, .boss = false },
     { .name = "重装对决", .monster_name = "铁甲蛮兽", .domain = "20以内加减 · 2~5乘法",
       .sprite_name = "brute", .math_stage = 1, .question_ms = 7800, .monster_hp = 4,
-      .boss = false },
+      .rules = 0, .boss = false },
     { .name = "深海来袭", .monster_name = "深渊蜥", .domain = "100以内加减 · 6~9乘法",
       .sprite_name = "abyss", .math_stage = 2, .question_ms = 7000, .monster_hp = 5,
-      .boss = false },
+      .rules = STAGE_RULE_HALF_NONCRIT, .boss = false },
     { .name = "夜翼危机", .monster_name = "夜翼蛾", .domain = "100以内加减 · 6~9乘法",
       .sprite_name = "moth", .math_stage = 2, .question_ms = 6800, .monster_hp = 5,
-      .boss = false },
+      .rules = STAGE_RULE_FAST_GAUGE, .boss = false },
     { .name = "森林巨兽", .monster_name = "暴怒巨猿", .domain = "退位减 · 乘除 · 填空",
       .sprite_name = "ape", .math_stage = 3, .question_ms = 6200, .monster_hp = 6,
-      .boss = false },
+      .rules = 0, .boss = false },
     { .name = "钢刃追猎", .monster_name = "钢刃兽", .domain = "退位减 · 乘除 · 填空",
       .sprite_name = "bladehead", .math_stage = 3, .question_ms = 6000, .monster_hp = 6,
-      .boss = false },
+      .rules = STAGE_RULE_GUARD_QTE, .boss = false },
     { .name = "赤甲虫王", .monster_name = "赤甲虫王", .domain = "混合两步 · 100以内加减",
       .sprite_name = "beetle", .math_stage = 4, .question_ms = 5600, .monster_hp = 7,
-      .boss = false },
+      .rules = STAGE_RULE_ARMOR_BREAK, .boss = false },
     { .name = "终焉飞龙", .monster_name = "终焉飞龙", .domain = "混合两步 · 乘除 · 填空",
       .sprite_name = "wyvern", .math_stage = 4, .question_ms = 5200, .monster_hp = 8,
-      .boss = true },
+      .rules = STAGE_RULE_ENRAGE, .boss = true },
 };
 
 static const difficulty_def_t DIFFICULTIES[CAMPAIGN_DIFFICULTY_COUNT] = {
@@ -80,6 +80,9 @@ uint16_t campaign_question_ms(uint8_t stage, uint8_t difficulty, uint8_t hero)
     const stage_def_t *stage_def = campaign_stage(stage);
     const difficulty_def_t *diff = campaign_difficulty(difficulty);
     int32_t ms = (int32_t)stage_def->question_ms + diff->time_bonus_ms;
+    if ((stage_def->rules & STAGE_RULE_FAST_GAUGE) != 0) {
+        ms = ms * 9 / 10;
+    }
     if (campaign_hero(hero)->perk == HERO_PERK_TIME) {
         ms += 800;
     }
@@ -118,4 +121,9 @@ uint8_t campaign_crit_window(uint8_t difficulty, uint8_t hero)
         window = 70;
     }
     return (uint8_t)window;
+}
+
+bool campaign_stage_has_rule(uint8_t stage, uint8_t rule)
+{
+    return (campaign_stage(stage)->rules & rule) != 0;
 }

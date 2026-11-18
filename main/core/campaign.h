@@ -8,6 +8,15 @@
 #define CAMPAIGN_STAGE_COUNT 8
 #define CAMPAIGN_DIFFICULTY_COUNT 3
 
+// Per-stage twists. Each stage keeps at most one or two so the rule stays
+// readable on the stage list and in the battle footer.
+#define STAGE_RULE_HINT_FREE    0x01u  // hints cost no question time
+#define STAGE_RULE_HALF_NONCRIT 0x02u  // non-perfect crits deal 1 damage
+#define STAGE_RULE_FAST_GAUGE   0x04u  // -10% question time, +1 gauge on correct
+#define STAGE_RULE_GUARD_QTE    0x08u  // wrong answers open a block prompt
+#define STAGE_RULE_ARMOR_BREAK  0x10u  // only a perfect crit breaks the armor
+#define STAGE_RULE_ENRAGE       0x20u  // boss speeds up below half HP
+
 typedef enum {
     HERO_PERK_GAUGE = 0,
     HERO_PERK_CRIT_DAMAGE,
@@ -32,6 +41,7 @@ typedef struct {
     uint8_t math_stage;
     uint16_t question_ms;
     uint8_t monster_hp;
+    uint8_t rules;
     bool boss;
 } stage_def_t;
 
@@ -52,3 +62,4 @@ uint16_t campaign_question_ms(uint8_t stage, uint8_t difficulty, uint8_t hero);
 uint8_t campaign_hero_hp(uint8_t difficulty);
 uint8_t campaign_monster_hp(uint8_t stage, uint8_t difficulty);
 uint8_t campaign_crit_window(uint8_t difficulty, uint8_t hero);
+bool campaign_stage_has_rule(uint8_t stage, uint8_t rule);

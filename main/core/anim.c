@@ -87,6 +87,51 @@ static const anim_key_t OVER_KEYS[] = {
     {1000, 0, 8, 0, 0, ANIM_POSE_IDLE, ANIM_MONSTER_ROAR, 0, 0, 0, 0},
 };
 
+// Combo pursuit: the hero chases the knocked-back monster for a second strike.
+static const anim_key_t HERO_PURSUIT_KEYS[] = {
+    {0, 0, 0, 0, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+    {120, -10, 0, 0, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+    {220, 0, 0, 0, 0, ANIM_POSE_FLY, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+    {439, 76, 0, 8, 0, ANIM_POSE_FLY, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+    {440, 76, 0, 8, 0, ANIM_POSE_KICK, ANIM_MONSTER_HURT, 0, 100, 0, 5},
+    {555, 76, 0, 8, 0, ANIM_POSE_KICK, ANIM_MONSTER_HURT, 0, 70, 0, 4},
+    {700, 46, 0, 4, 0, ANIM_POSE_FLY, ANIM_MONSTER_HURT, 0, 30, 0, 1},
+    {860, 10, 0, 0, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+    {1000, 0, 0, 0, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+};
+
+// Combo finisher: deeper windup before the same impact frame, with a bigger
+// recoil so the third hit reads as the end of a sentence.
+static const anim_key_t COMBO_FINISH_KEYS[] = {
+    {0, 0, 0, 0, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+    {180, -12, 0, 0, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+    {300, 0, 0, 0, 0, ANIM_POSE_FLY, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+    {439, 82, 0, 10, 0, ANIM_POSE_FLY, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+    {440, 82, 0, 10, 0, ANIM_POSE_KICK, ANIM_MONSTER_HURT, 0, 100, 0, 5},
+    {580, 82, 0, 10, 0, ANIM_POSE_KICK, ANIM_MONSTER_HURT, 0, 80, 0, 5},
+    {760, 30, 0, 4, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_HURT, 0, 30, 0, 2},
+    {900, 6, 0, 0, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+    {1000, 0, 0, 0, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+};
+
+// Interactive ultimate, part one: hold the charge while the beat marker runs.
+static const anim_key_t ULTIMATE_CHARGE_KEYS[] = {
+    {0, 0, 0, 0, 0, ANIM_POSE_CHARGE, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+    {180, 0, 0, 0, 0, ANIM_POSE_CHARGE, ANIM_MONSTER_ROAR, 0, 0, 0, 0},
+    {420, 0, -4, 0, 0, ANIM_POSE_CHARGE, ANIM_MONSTER_ROAR, 0, 0, 0, 0},
+    {760, 0, -7, 0, 0, ANIM_POSE_CHARGE, ANIM_MONSTER_CHARGE, 0, 0, 0, 0},
+    {1000, 0, -7, 0, 0, ANIM_POSE_CHARGE, ANIM_MONSTER_CHARGE, 0, 0, 0, 0},
+};
+
+// Interactive ultimate, part two: the tail after the final beat.
+static const anim_key_t ULTIMATE_FIRE_KEYS[] = {
+    {0, 0, -4, 0, 0, ANIM_POSE_BEAM, ANIM_MONSTER_HURT, 0, 100, 100, 3},
+    {180, 0, -4, 8, 0, ANIM_POSE_BEAM, ANIM_MONSTER_HURT, 0, 80, 100, 5},
+    {420, 0, -2, 4, 0, ANIM_POSE_BEAM, ANIM_MONSTER_HURT, 0, 40, 100, 2},
+    {760, 0, 0, 0, 0, ANIM_POSE_BEAM, ANIM_MONSTER_IDLE, 0, 0, 60, 0},
+    {1000, 0, 0, 0, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+};
+
 #define KEY_COUNT(t) (sizeof(t) / sizeof((t)[0]))
 
 typedef struct {
@@ -103,6 +148,14 @@ static const anim_def_t DEFS[ANIM_COUNT] = {
     [ANIM_BEAM] = {BEAM_KEYS, (uint8_t)KEY_COUNT(BEAM_KEYS), 0},
     [ANIM_CLEAR] = {CLEAR_KEYS, (uint8_t)KEY_COUNT(CLEAR_KEYS), 0},
     [ANIM_OVER] = {OVER_KEYS, (uint8_t)KEY_COUNT(OVER_KEYS), 0},
+    [ANIM_HERO_PURSUIT] = {HERO_PURSUIT_KEYS,
+                           (uint8_t)KEY_COUNT(HERO_PURSUIT_KEYS), 440},
+    [ANIM_COMBO_FINISH] = {COMBO_FINISH_KEYS,
+                           (uint8_t)KEY_COUNT(COMBO_FINISH_KEYS), 440},
+    [ANIM_ULTIMATE_CHARGE] = {ULTIMATE_CHARGE_KEYS,
+                              (uint8_t)KEY_COUNT(ULTIMATE_CHARGE_KEYS), 0},
+    [ANIM_ULTIMATE_FIRE] = {ULTIMATE_FIRE_KEYS,
+                            (uint8_t)KEY_COUNT(ULTIMATE_FIRE_KEYS), 0},
 };
 
 // Linear interpolation, used for flash and shake where an immediate onset

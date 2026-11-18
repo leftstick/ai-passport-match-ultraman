@@ -18,6 +18,11 @@ typedef enum {
     ANIM_BEAM,
     ANIM_CLEAR,
     ANIM_OVER,
+    // Combo variants and the interactive ultimate split.
+    ANIM_HERO_PURSUIT,
+    ANIM_COMBO_FINISH,
+    ANIM_ULTIMATE_CHARGE,
+    ANIM_ULTIMATE_FIRE,
     ANIM_COUNT,
 } anim_id_t;
 

@@ -111,9 +111,12 @@ typedef enum {
     IMPACT_NONE = 0,
     IMPACT_HERO_HIT,
     IMPACT_HERO_PERFECT,
+    IMPACT_HERO_PURSUIT,
+    IMPACT_COMBO_FINISH,
     IMPACT_HERO_MISS,
     IMPACT_ENEMY,
-    IMPACT_ULTIMATE,
+    IMPACT_ULT_STEP,
+    IMPACT_GUARD_BLOCK,
 } impact_kind_t;
 
 typedef struct {
@@ -478,6 +481,29 @@ static void stars_string(char *buf, size_t size, uint8_t stars)
     buf[pos] = '\0';
 }
 
+static const char *stage_rule_text(uint8_t stage)
+{
+    if (campaign_stage_has_rule(stage, STAGE_RULE_HINT_FREE)) {
+        return "提示免费";
+    }
+    if (campaign_stage_has_rule(stage, STAGE_RULE_HALF_NONCRIT)) {
+        return "非完美伤害减半";
+    }
+    if (campaign_stage_has_rule(stage, STAGE_RULE_FAST_GAUGE)) {
+        return "快节奏 · 蓄力+1";
+    }
+    if (campaign_stage_has_rule(stage, STAGE_RULE_GUARD_QTE)) {
+        return "偷袭格挡";
+    }
+    if (campaign_stage_has_rule(stage, STAGE_RULE_ARMOR_BREAK)) {
+        return "完美破甲";
+    }
+    if (campaign_stage_has_rule(stage, STAGE_RULE_ENRAGE)) {
+        return "半血狂暴";
+    }
+    return "";
+}
+
 static void set_battery_labels(void)
 {
     char buf[16];
@@ -611,8 +637,13 @@ static void refresh_stages(void)
     }
 
     const stage_def_t *stage = campaign_stage(s_app.stage);
+    const char *rule = stage_rule_text(s_app.stage);
     char line[64];
-    snprintf(line, sizeof(line), "对手:%s", stage->monster_name);
+    if (rule[0] != '\0') {
+        snprintf(line, sizeof(line), "对手:%s · %s", stage->monster_name, rule);
+    } else {
+        snprintf(line, sizeof(line), "对手:%s", stage->monster_name);
+    }
     label_set(s_app.stages.detail_1, line);
     label_set(s_app.stages.detail_2, stage->domain);
 }
@@ -729,14 +760,35 @@ static void refresh_battle_texts(void)
                    ? "怪兽扑过来了!"
                    : "被怪兽反击了!";
         break;
-    case BATTLE_PHASE_ULTIMATE:
-        hint = (now < s_app.impact_at_us && s_app.impact_kind == IMPACT_ULTIMATE)
-                   ? "蓄能中…"
-                   : "必杀技发动!";
+    case BATTLE_PHASE_ULTIMATE: {
+        const int step = battle_ultimate_step(battle);
+        const int steps = battle_ultimate_steps(battle);
+        const uint8_t input = battle_ultimate_input(battle);
+        if (step >= steps) {
+            hint = "必杀释放!";
+        } else if (input == ULT_INPUT_UP) {
+            hint = "看准金色区域,按 ↑ 接拍!";
+        } else if (input == ULT_INPUT_DOWN) {
+            hint = "看准金色区域,按 ↓ 接拍!";
+        } else {
+            hint = "看准金色区域,按OK接拍";
+        }
         break;
-    case BATTLE_PHASE_BEAM:
-        hint = "连按确定,把光线推回去!";
+    }
+    case BATTLE_PHASE_GUARD:
+        hint = battle_guard_dir(battle) == 0 ? "怪兽偷袭!按 ↑ 格挡"
+                                             : "怪兽偷袭!按 ↓ 格挡";
         break;
+    case BATTLE_PHASE_BEAM: {
+        const int beats = (int)battle_beam_beats_left(battle);
+        if (beats > 0) {
+            snprintf(buf, sizeof(buf), "跟着节拍按OK · 还剩%d拍", beats);
+            hint = buf;
+        } else {
+            hint = "光线对决结算!";
+        }
+        break;
+    }
     case BATTLE_PHASE_CLEAR:
         hint = "怪兽被击败!";
         break;
@@ -752,8 +804,11 @@ static void refresh_battle_texts(void)
     label_set(s_app.battle_ui.hint, hint);
     if ((battle->phase == BATTLE_PHASE_QUESTION &&
          s_app.notice_until_us > now) ||
-        battle->phase == BATTLE_PHASE_CRITICAL) {
+        battle->phase == BATTLE_PHASE_CRITICAL ||
+        battle->phase == BATTLE_PHASE_ULTIMATE) {
         label_color(s_app.battle_ui.hint, COL_GOLD);
+    } else if (battle->phase == BATTLE_PHASE_GUARD) {
+        label_color(s_app.battle_ui.hint, COL_DANGER);
     } else if (battle->hint_used) {
         label_color(s_app.battle_ui.hint, COL_ACCENT);
     } else {
@@ -799,8 +854,23 @@ static void refresh_battle_texts(void)
     if (battle_can_ultimate(battle)) {
         label_set(s_app.battle_ui.footer, "必杀就绪!长按↑发动");
         label_color(s_app.battle_ui.footer, COL_GOLD);
+    } else if (battle->phase == BATTLE_PHASE_GUARD) {
+        label_set(s_app.battle_ui.footer, "按 ↑ / ↓ 格挡怪兽偷袭");
+        label_color(s_app.battle_ui.footer, COL_DANGER);
+    } else if (battle->phase == BATTLE_PHASE_ULTIMATE) {
+        const uint8_t input = battle_ultimate_input(battle);
+        if (battle_ultimate_step(battle) >= battle_ultimate_steps(battle)) {
+            label_set(s_app.battle_ui.footer, "必杀释放!");
+        } else if (input == ULT_INPUT_UP) {
+            label_set(s_app.battle_ui.footer, "看准金色区域,按 ↑ 接拍");
+        } else if (input == ULT_INPUT_DOWN) {
+            label_set(s_app.battle_ui.footer, "看准金色区域,按 ↓ 接拍");
+        } else {
+            label_set(s_app.battle_ui.footer, "看准金色区域,按OK接拍");
+        }
+        label_color(s_app.battle_ui.footer, COL_GOLD);
     } else if (battle->phase == BATTLE_PHASE_BEAM) {
-        label_set(s_app.battle_ui.footer, "连按OK!把光线推回去");
+        label_set(s_app.battle_ui.footer, "跟着5拍节奏 · 按OK");
         label_color(s_app.battle_ui.footer, COL_DANGER);
     } else if (battle->phase == BATTLE_PHASE_CRITICAL) {
         label_set(s_app.battle_ui.footer, "看准金色区域,按下OK");
@@ -872,6 +942,44 @@ static void refresh_battle_rows(void)
     }
 }
 
+static const char *ultimate_title(uint8_t hero)
+{
+    switch (hero) {
+    case 0:
+        return "蓝焰 · 超能光线";
+    case 1:
+        return "赤焰 · 烈焰连击";
+    case 2:
+        return "翡翠 · 时光领域";
+    case 3:
+        return "金辉 · 聚能重击";
+    case 4:
+        return "紫电 · 雷霆四连";
+    default:
+        return "必杀技!";
+    }
+}
+
+static void set_action_zone(int left_pct, int width_pct)
+{
+    int left = left_pct;
+    if (left < 0) left = 0;
+    int width = width_pct;
+    if (left + width > 100) width = 100 - left;
+    const int left_px = left * 200 / 100;
+    const int width_px = width * 200 / 100;
+    if (left_px != s_app.ui_crit_left || width_px != s_app.ui_crit_width) {
+        s_app.ui_crit_left = (int16_t)left_px;
+        s_app.ui_crit_width = (int16_t)width_px;
+        lv_obj_set_pos(s_app.battle_ui.crit_zone, left_px, 2);
+        lv_obj_set_size(s_app.battle_ui.crit_zone, width_px, 10);
+        const int perfect_w = width_px / 2;
+        lv_obj_set_pos(s_app.battle_ui.crit_perfect,
+                       left_px + (width_px - perfect_w) / 2, 3);
+        lv_obj_set_size(s_app.battle_ui.crit_perfect, perfect_w, 8);
+    }
+}
+
 static void refresh_battle_action(void)
 {
     battle_t *battle = &s_app.battle;
@@ -890,48 +998,86 @@ static void refresh_battle_action(void)
                             ? battle->crit_window_effective
                             : battle->crit_window;
         const int half = eff / 2;
-        int left = (int)battle->crit_center - half;
-        if (left < 0) left = 0;
-        int width = eff;
-        if (left + width > 100) width = 100 - left;
-        const int left_px = left * 200 / 100;
-        const int width_px = width * 200 / 100;
-        if (left_px != s_app.ui_crit_left || width_px != s_app.ui_crit_width) {
-            s_app.ui_crit_left = (int16_t)left_px;
-            s_app.ui_crit_width = (int16_t)width_px;
-            lv_obj_set_pos(s_app.battle_ui.crit_zone, left_px, 2);
-            lv_obj_set_size(s_app.battle_ui.crit_zone, width_px, 10);
-            const int perfect_w = width_px / 2;
-            lv_obj_set_pos(s_app.battle_ui.crit_perfect,
-                           left_px + (width_px - perfect_w) / 2, 3);
-            lv_obj_set_size(s_app.battle_ui.crit_perfect, perfect_w, 8);
-        }
+        set_action_zone((int)battle->crit_center - half, eff);
         lv_obj_set_pos(s_app.battle_ui.crit_marker,
                        14 + (int)battle->crit_marker * 200 / 100 - 2, 32);
         return;
     }
 
     if (battle->phase == BATTLE_PHASE_ULTIMATE) {
-        label_set(s_app.battle_ui.action_title, "必杀技!");
+        const int steps = battle_ultimate_steps(battle);
+        const int step = battle_ultimate_step(battle);
+        label_set(s_app.battle_ui.action_title, ultimate_title(battle->hero));
         label_color(s_app.battle_ui.action_title, COL_ACCENT);
-        label_set(s_app.battle_ui.action_sub, "超能光线全功率释放");
+        if (step >= steps) {
+            label_set(s_app.battle_ui.action_sub, "必杀释放!");
+            set_hidden(s_app.battle_ui.crit_track, true);
+            set_hidden(s_app.battle_ui.crit_marker, true);
+            set_hidden(s_app.battle_ui.beam_track, true);
+            return;
+        }
+
+        const uint8_t input = battle_ultimate_input(battle);
+        const char *key = input == ULT_INPUT_UP ? "↑"
+                          : input == ULT_INPUT_DOWN ? "↓"
+                                                    : "OK";
+        char sub[48];
+        snprintf(sub, sizeof(sub), "第 %d/%d 拍 · 按%s", step + 1, steps, key);
+        label_set(s_app.battle_ui.action_sub, sub);
+        set_hidden(s_app.battle_ui.crit_track, false);
+        set_hidden(s_app.battle_ui.crit_marker, false);
+        set_hidden(s_app.battle_ui.beam_track, true);
+
+        // The beat centre sits at 55% of the step; the gold band is the
+        // forgiving hit window, the bright core is the perfect zone.
+        set_action_zone(40, 30);
+        const uint16_t step_ms = battle->ult.step_ms;
+        int marker = 0;
+        if (step_ms > 0) {
+            marker = (int)((uint32_t)battle->ult.step_elapsed * 100u / step_ms);
+        }
+        if (marker > 100) marker = 100;
+        lv_obj_set_pos(s_app.battle_ui.crit_marker,
+                       14 + marker * 200 / 100 - 2, 32);
+        return;
+    }
+
+    if (battle->phase == BATTLE_PHASE_GUARD) {
+        label_set(s_app.battle_ui.action_title, "格挡!");
+        label_color(s_app.battle_ui.action_title, COL_DANGER);
+        label_set(s_app.battle_ui.action_sub,
+                  battle_guard_dir(battle) == 0 ? "按 ↑ 挡住偷袭!"
+                                               : "按 ↓ 挡住偷袭!");
         set_hidden(s_app.battle_ui.crit_track, true);
         set_hidden(s_app.battle_ui.crit_marker, true);
-        set_hidden(s_app.battle_ui.beam_track, true);
+        set_hidden(s_app.battle_ui.beam_track, false);
+        const uint16_t remaining = battle_guard_remaining_ms(battle);
+        const int16_t fill =
+            (int16_t)((uint32_t)remaining * 160u / BATTLE_GUARD_MS);
+        if (fill != s_app.ui_beam_fill) {
+            s_app.ui_beam_fill = fill;
+            lv_obj_set_size(s_app.battle_ui.beam_fill, fill, 6);
+        }
         return;
     }
 
     if (battle->phase == BATTLE_PHASE_BEAM) {
         label_set(s_app.battle_ui.action_title, "光线对决!");
         label_color(s_app.battle_ui.action_title, COL_DANGER);
+        const int beats = (int)battle_beam_beats_left(battle);
         char sub[48];
-        snprintf(sub, sizeof(sub), "连按确定!已按 %d 次",
-                 (int)battle->beam_presses);
+        if (beats > 0) {
+            snprintf(sub, sizeof(sub), "还剩 %d 拍 · 力度 %d", beats,
+                     (int)battle_beam_force(battle));
+        } else {
+            snprintf(sub, sizeof(sub), "力度 %d",
+                     (int)battle_beam_force(battle));
+        }
         label_set(s_app.battle_ui.action_sub, sub);
         set_hidden(s_app.battle_ui.crit_track, true);
         set_hidden(s_app.battle_ui.crit_marker, true);
         set_hidden(s_app.battle_ui.beam_track, false);
-        const int16_t fill = (int16_t)(battle->beam_force * 160 / 100);
+        const int16_t fill = (int16_t)(battle_beam_force(battle) * 160 / 100);
         if (fill != s_app.ui_beam_fill) {
             s_app.ui_beam_fill = fill;
             lv_obj_set_size(s_app.battle_ui.beam_fill, fill, 6);
@@ -1048,6 +1194,7 @@ static void update_panel(uint32_t dt_ms)
 {
     const uint8_t phase = s_app.battle.phase;
     const bool want_hidden = !(phase == BATTLE_PHASE_CRITICAL ||
+                               phase == BATTLE_PHASE_GUARD ||
                                phase == BATTLE_PHASE_ULTIMATE ||
                                phase == BATTLE_PHASE_BEAM);
     s_app.action_target_hidden = want_hidden;
@@ -1079,17 +1226,29 @@ static void schedule_impact(impact_kind_t kind, int damage)
 {
     anim_id_t id = ANIM_HERO_ATTACK;
     uint32_t duration = BATTLE_ATTACK_MS;
+    uint32_t delay_ms = 0;
+
     if (kind == IMPACT_ENEMY) {
         id = ANIM_ENEMY_ATTACK;
         duration = BATTLE_ENEMY_MS;
-    } else if (kind == IMPACT_ULTIMATE) {
-        id = ANIM_ULTIMATE;
-        duration = BATTLE_ULTIMATE_MS;
+    } else if (kind == IMPACT_ULT_STEP) {
+        // Ultimate hits are judged on the input, so the visual reaction only
+        // needs a short cause-and-effect beat.
+        delay_ms = 180;
+    } else if (kind == IMPACT_GUARD_BLOCK) {
+        delay_ms = 120;
+    } else if (kind == IMPACT_COMBO_FINISH) {
+        id = ANIM_COMBO_FINISH;
+    } else if (kind == IMPACT_HERO_PURSUIT) {
+        id = ANIM_HERO_PURSUIT;
+    }
+
+    if (delay_ms == 0) {
+        delay_ms = anim_impact_ms(id, duration);
     }
     s_app.impact_kind = (uint8_t)kind;
     s_app.impact_damage = damage;
-    s_app.impact_at_us =
-        esp_timer_get_time() + (int64_t)anim_impact_ms(id, duration) * 1000;
+    s_app.impact_at_us = esp_timer_get_time() + (int64_t)delay_ms * 1000;
 }
 
 static void update_impact(int64_t now)
@@ -1124,24 +1283,36 @@ static void update_impact(int64_t now)
         return;
     }
 
+    if (kind == IMPACT_GUARD_BLOCK) {
+        s_app.monster_hp_goal = battle->monster_hp;
+        spawn_popup("格挡!", COL_ACCENT, HERO_X - ARENA_X + 8, 30);
+        audio_player_play(SFX_CRITICAL);
+        s_app.arena_flash_until_us = now + 90000;
+        return;
+    }
+
     s_app.monster_hp_goal = battle->monster_hp;
     snprintf(text, sizeof(text), "-%d", damage > 0 ? damage : 1);
-    if (kind == IMPACT_ULTIMATE) {
+    if (kind == IMPACT_ULT_STEP) {
         spawn_popup(text, COL_ACCENT, MONSTER_X - ARENA_X + 16, 26);
-        audio_player_play(SFX_BEAM);
         audio_player_play(SFX_HIT);
-        s_app.arena_flash_until_us = now + 180000;
+        s_app.arena_flash_until_us = now + 120000;
     } else {
-        const bool perfect = kind == IMPACT_HERO_PERFECT;
+        const bool perfect = kind == IMPACT_HERO_PERFECT ||
+                             kind == IMPACT_COMBO_FINISH;
         spawn_popup(text, perfect ? COL_GOLD : COL_TEXT,
                     MONSTER_X - ARENA_X + 16, 26);
         audio_player_play(SFX_HIT);
+        if (kind == IMPACT_COMBO_FINISH) {
+            audio_player_play(SFX_CRITICAL);
+        }
         if (perfect) {
             // Keep the praise brief so the next question's own hint returns
             // before the player needs it.
             set_notice_ms("完美暴击!", 700000LL);
         }
-        s_app.arena_flash_until_us = now + 90000;
+        s_app.arena_flash_until_us =
+            now + (kind == IMPACT_COMBO_FINISH ? 140000 : 90000);
     }
 }
 
@@ -1155,10 +1326,17 @@ static void refresh_battle_animation(void)
     uint32_t duration = 1000;
     uint32_t elapsed = 0;
     bool idle_breath = false;
+    bool guard_pose = false;
 
     switch (battle->phase) {
     case BATTLE_PHASE_ATTACK:
-        id = ANIM_HERO_ATTACK;
+        if (battle->combo_finisher) {
+            id = ANIM_COMBO_FINISH;
+        } else if (battle->crit_pursuit) {
+            id = ANIM_HERO_PURSUIT;
+        } else {
+            id = ANIM_HERO_ATTACK;
+        }
         duration = BATTLE_ATTACK_MS;
         elapsed = (uint32_t)(BATTLE_ATTACK_MS - battle->phase_ms);
         break;
@@ -1167,11 +1345,25 @@ static void refresh_battle_animation(void)
         duration = BATTLE_ENEMY_MS;
         elapsed = (uint32_t)(BATTLE_ENEMY_MS - battle->phase_ms);
         break;
-    case BATTLE_PHASE_ULTIMATE:
-        id = ANIM_ULTIMATE;
-        duration = BATTLE_ULTIMATE_MS;
-        elapsed = (uint32_t)(BATTLE_ULTIMATE_MS - battle->phase_ms);
+    case BATTLE_PHASE_GUARD:
+        guard_pose = true;
         break;
+    case BATTLE_PHASE_ULTIMATE: {
+        const uint32_t total = battle_ultimate_total_ms(&s_app.battle);
+        const uint32_t spent = total > (uint32_t)battle->phase_ms
+                                   ? total - (uint32_t)battle->phase_ms
+                                   : 0;
+        if (battle_ultimate_step(battle) >= battle_ultimate_steps(battle)) {
+            id = ANIM_ULTIMATE_FIRE;
+            duration = 500;
+            elapsed = spent > duration ? duration : spent;
+        } else {
+            id = ANIM_ULTIMATE_CHARGE;
+            duration = total;
+            elapsed = spent;
+        }
+        break;
+    }
     case BATTLE_PHASE_BEAM:
         id = ANIM_BEAM;
         duration = BATTLE_BEAM_MS;
@@ -1193,6 +1385,11 @@ static void refresh_battle_animation(void)
     }
 
     anim_frame_t frame = anim_sample(id, elapsed, duration);
+    if (guard_pose) {
+        frame.hero_pose = ANIM_POSE_GUARD;
+        frame.monster_pose = ANIM_MONSTER_CHARGE;
+        frame.monster_dy = 0;
+    }
     if (battle->phase == BATTLE_PHASE_ATTACK && s_app.hero_attack_missed) {
         // A whiff must not knock the monster back or make it flash.
         frame.monster_pose = ANIM_MONSTER_IDLE;
@@ -1267,7 +1464,7 @@ static void refresh_battle_animation(void)
     }
     if (beam) {
         const int force = battle->phase == BATTLE_PHASE_BEAM
-                              ? battle->beam_force
+                              ? battle_beam_force(battle)
                               : frame.beam;
         const int glow_h = 8 + force * 12 / 100;
         const int core_h = 3 + force * 8 / 100;
@@ -1668,20 +1865,21 @@ static void handle_battle_event(battle_event_t event)
         schedule_impact(IMPACT_ENEMY, damage);
         break;
     }
-    case BATTLE_EV_CRITICAL_HIT: {
-        audio_player_play(SFX_SWING);
-        audio_player_play(SFX_CRITICAL);
-        s_app.hero_attack_missed = false;
-        const int damage = (int)s_app.monster_hp_seen - (int)battle->monster_hp;
-        schedule_impact(IMPACT_HERO_HIT, damage);
-        break;
-    }
+    case BATTLE_EV_CRITICAL_HIT:
     case BATTLE_EV_CRITICAL_PERFECT: {
         audio_player_play(SFX_SWING);
         audio_player_play(SFX_CRITICAL);
         s_app.hero_attack_missed = false;
         const int damage = (int)s_app.monster_hp_seen - (int)battle->monster_hp;
-        schedule_impact(IMPACT_HERO_PERFECT, damage);
+        impact_kind_t kind = IMPACT_HERO_HIT;
+        if (battle->combo_finisher) {
+            kind = IMPACT_COMBO_FINISH;
+        } else if (battle->crit_pursuit) {
+            kind = IMPACT_HERO_PURSUIT;
+        } else if (event == BATTLE_EV_CRITICAL_PERFECT) {
+            kind = IMPACT_HERO_PERFECT;
+        }
+        schedule_impact(kind, damage);
         break;
     }
     case BATTLE_EV_CRITICAL_MISS: {
@@ -1699,13 +1897,44 @@ static void handle_battle_event(battle_event_t event)
         break;
     case BATTLE_EV_ULTIMATE_START: {
         audio_player_play(SFX_CHARGE);
-        set_notice("必杀技发动!");
-        const int damage = (int)s_app.monster_hp_seen - (int)battle->monster_hp;
-        schedule_impact(IMPACT_ULTIMATE, damage);
+        set_notice(ultimate_title(battle->hero));
         break;
     }
+    case BATTLE_EV_ULTIMATE_PERFECT:
+    case BATTLE_EV_ULTIMATE_HIT: {
+        audio_player_play(SFX_HIT);
+        const int damage = (int)s_app.monster_hp_seen - (int)battle->monster_hp;
+        schedule_impact(IMPACT_ULT_STEP, damage);
+        if (event == BATTLE_EV_ULTIMATE_PERFECT) {
+            set_notice_ms("完美!", 600000LL);
+        }
+        break;
+    }
+    case BATTLE_EV_ULTIMATE_MISS:
+        audio_player_play(SFX_WRONG);
+        set_notice_ms("没接上", 700000LL);
+        break;
     case BATTLE_EV_ULTIMATE_DONE:
         break;
+    case BATTLE_EV_GUARD_START:
+        audio_player_play(SFX_WRONG);
+        audio_player_play(SFX_GROWL);
+        s_app.feedback_correct = battle->question.correct_index;
+        s_app.feedback_wrong = battle->cursor;
+        set_notice("偷袭!按提示方向格挡");
+        break;
+    case BATTLE_EV_GUARD_BLOCK: {
+        audio_player_play(SFX_SWING);
+        const int damage = (int)s_app.monster_hp_seen - (int)battle->monster_hp;
+        schedule_impact(IMPACT_GUARD_BLOCK, damage);
+        break;
+    }
+    case BATTLE_EV_GUARD_FAIL: {
+        audio_player_play(SFX_WRONG);
+        const int damage = (int)s_app.hero_hp_seen - (int)battle->hero_hp;
+        schedule_impact(IMPACT_ENEMY, damage);
+        break;
+    }
     case BATTLE_EV_MONSTER_DEFEATED:
         audio_player_play(SFX_MONSTER_DOWN);
         s_app.monster_hp_goal = battle->monster_hp;
@@ -1724,10 +1953,17 @@ static void handle_battle_event(battle_event_t event)
         break;
     case BATTLE_EV_BEAM_START:
         audio_player_play(SFX_BEAM);
-        set_notice("连按确定,把光线推回去!");
+        set_notice("踩准节拍点确定,推回光线!");
         break;
-    case BATTLE_EV_BEAM_PRESS:
+    case BATTLE_EV_BEAM_PERFECT:
+        audio_player_play(SFX_CRITICAL);
+        set_notice_ms("完美接拍!", 600000LL);
+        break;
+    case BATTLE_EV_BEAM_HIT:
         audio_player_play(SFX_HIT);
+        break;
+    case BATTLE_EV_BEAM_MISS:
+        audio_player_play(SFX_WRONG);
         break;
     case BATTLE_EV_BEAM_WIN:
         audio_player_play(SFX_MONSTER_DOWN);
@@ -1968,6 +2204,40 @@ static void handle_battle_key(bsp_btn_t btn, bsp_btn_ev_t event)
         btn == BSP_BTN_OK) {
         handle_battle_event(battle_confirm(&s_app.battle));
         refresh_battle();
+        return;
+    }
+    if (s_app.battle.phase == BATTLE_PHASE_ULTIMATE && event == BSP_BTN_PRESS) {
+        uint8_t input = 0xFF;
+        if (btn == BSP_BTN_OK) {
+            input = ULT_INPUT_OK;
+        } else if (btn == BSP_BTN_UP) {
+            input = ULT_INPUT_UP;
+        } else if (btn == BSP_BTN_DOWN) {
+            input = ULT_INPUT_DOWN;
+        }
+        if (input != 0xFF) {
+            const battle_event_t ev = battle_ultimate_press(&s_app.battle, input);
+            if (ev != BATTLE_EV_NONE) {
+                handle_battle_event(ev);
+            }
+            refresh_battle();
+        }
+        return;
+    }
+    if (s_app.battle.phase == BATTLE_PHASE_GUARD && event == BSP_BTN_PRESS) {
+        uint8_t input = 0xFF;
+        if (btn == BSP_BTN_UP) {
+            input = ULT_INPUT_UP;
+        } else if (btn == BSP_BTN_DOWN) {
+            input = ULT_INPUT_DOWN;
+        }
+        if (input != 0xFF) {
+            const battle_event_t ev = battle_guard_press(&s_app.battle, input);
+            if (ev != BATTLE_EV_NONE) {
+                handle_battle_event(ev);
+            }
+            refresh_battle();
+        }
         return;
     }
     if (s_app.battle.phase == BATTLE_PHASE_BEAM && event == BSP_BTN_PRESS &&
