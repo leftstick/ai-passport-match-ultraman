@@ -134,12 +134,19 @@ run_firmware_checks() (
     idf.py -B "${validation_build_dir}" merge-bin \
         -o "${validation_build_dir}/FoloToy-AI-Passport-full.bin"
     python3 tools/verify_firmware.py "${validation_build_dir}"
-    PYTHONDONTWRITEBYTECODE=1 python3 tools/archive_firmware.py create \
-        "${validation_build_dir}" --archive-root "${repo_root}/build/firmware"
+    # Content-addressed archives are opt-in so a normal gate does not create a
+    # new directory on every build.
+    if [[ "${PASSPORT_FIRMWARE_ARCHIVE:-0}" == "1" ]]; then
+        PYTHONDONTWRITEBYTECODE=1 python3 tools/archive_firmware.py create \
+            "${validation_build_dir}" --archive-root "${repo_root}/build/firmware"
+    fi
+    # The gate always overwrites one known image so the build result is easy to
+    # find.
     mkdir -p "${repo_root}/build"
     install -m 0644 \
         "${validation_build_dir}/FoloToy-AI-Passport-full.bin" \
         "${repo_root}/build/FoloToy-AI-Passport-full.bin"
+    echo "Firmware image: ${repo_root}/build/FoloToy-AI-Passport-full.bin"
     echo "Firmware build: PASS"
 )
 

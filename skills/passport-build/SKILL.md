@@ -33,16 +33,17 @@ from that checkout; never infer a developer-specific IDF path.
 
 ## Identify the exact deliverable
 
-The gate preserves `build/FoloToy-AI-Passport-full.bin` and a content-addressed
-bundle under `build/firmware/<full-bin-sha256>/`. Verify the bundle before
-handoff with:
+The gate preserves `build/FoloToy-AI-Passport-full.bin`, overwriting the
+previous image. It creates a content-addressed bundle under
+`build/firmware/<full-bin-sha256>/` only when `PASSPORT_FIRMWARE_ARCHIVE=1` is
+set. When a bundle exists, verify it before handoff with:
 
 ```text
 python3 tools/archive_firmware.py verify <archive-directory>
 ```
 
-Report the actual archive path, full-image hash, and matching ELF identity from
-`manifest.json`. The archive retains ELF, MAP, merged, application, bootloader,
+Report the actual image path and its full-image hash. If an archive was created,
+also report the archive path and matching ELF identity from `manifest.json`. The archive retains ELF, MAP, merged, application, bootloader,
 and partition-table images, and `flash_args`. Extra custom partition images are
 not retained separately; obtain them if needed for segmented flashing. A repeat
 archive of identical firmware reuses its first verified MAP as documented in the

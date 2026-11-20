@@ -78,12 +78,15 @@ Microsoft Defender 可使用其
 
 仓库提交 `dependencies.lock` 以固定 ESP-IDF Managed Components 的解析结果。修改 `idf_component.yml` 后必须使用 ESP-IDF 5.5.3 重新生成锁文件、review 版本变化并与 manifest 一起提交；普通构建不应产生未提交的锁文件差异。
 
-固件门禁使用全新的临时构建目录，并从仓库 `sdkconfig.defaults` 生成隔离的 `sdkconfig`。它不会读取或覆盖开发者根目录的 `sdkconfig`。清理临时构建前，先归档已验证固件及匹配的调试产物，再把已验证合并镜像复制到 `build/FoloToy-AI-Passport-full.bin`。门禁同时验证[当前配置的固件布局](firmware-layout.zh_CN.md)：从 `flash_args` 读取镜像偏移，检查分区表 MD5、边界和不重叠，并确认应用从所配置的 app 分区起点开始且未超出分区。允许用户自定义分区布局。
+固件门禁使用全新的临时构建目录，并从仓库 `sdkconfig.defaults` 生成隔离的 `sdkconfig`。它不会读取或覆盖开发者根目录的 `sdkconfig`。清理临时构建前，把已验证合并镜像复制到 `build/FoloToy-AI-Passport-full.bin`，覆盖上一版；门禁默认不创建按次生成的归档目录。门禁同时验证[当前配置的固件布局](firmware-layout.zh_CN.md)：从 `flash_args` 读取镜像偏移，检查分区表 MD5、边界和不重叠，并确认应用从所配置的 app 分区起点开始且未超出分区。允许用户自定义分区布局。
 
 ### 保留匹配的崩溃调试产物
 
-每次成功的固件门禁都会在本地保留 `build/firmware/<full-bin-sha256>/`
-归档。`manifest.json` 记录完整镜像与 ELF 的 SHA-256、项目／应用／IDF
+普通固件门禁只保留 `build/FoloToy-AI-Passport-full.bin`。需要匹配的
+崩溃调试产物时，运行 `./tools/validate.sh --firmware`（或完整门禁）前设置
+`PASSPORT_FIRMWARE_ARCHIVE=1`，门禁会额外保留
+`build/firmware/<full-bin-sha256>/` 归档。`manifest.json` 记录完整镜像与
+ELF 的 SHA-256、项目／应用／IDF
 版本字段、偏移，以及每个保留文件的大小和哈希。归档包含：
 
 - 已校验合并镜像及其应用 ELF、MAP、应用镜像。

@@ -13,8 +13,8 @@ static void test_content(void)
         assert(hero->perk_text[0] != '\0');
         assert(hero->perk <= HERO_PERK_SHIELD);
     }
-    assert(strcmp(campaign_hero(0)->name, "蓝焰战士") == 0);
-    assert(strcmp(campaign_hero(4)->name, "紫电战士") == 0);
+    assert(strcmp(campaign_hero(0)->name, "赛罗奥特曼") == 0);
+    assert(strcmp(campaign_hero(4)->name, "迪迦奥特曼") == 0);
 
     for (uint8_t i = 0; i < CAMPAIGN_STAGE_COUNT; i++) {
         const stage_def_t *stage = campaign_stage(i);

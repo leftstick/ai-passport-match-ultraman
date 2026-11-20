@@ -37,11 +37,55 @@ static const anim_key_t HERO_ATTACK_KEYS[] = {
     {1000, 0, 0, 0, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
 };
 
+// Alternate ordinary strike: the same windup, but the hero lands a flying
+// punch instead of a kick. The impact frame stays at 440/1000 so damage pops
+// at the same moment as the contact frame.
+static const anim_key_t HERO_ATTACK_PUNCH_KEYS[] = {
+    {0, 0, 0, 0, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+    {150, -7, 0, 0, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+    {240, 0, 0, 0, 0, ANIM_POSE_FLY, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+    {439, 68, 0, 8, 0, ANIM_POSE_FLY, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+    {440, 68, 0, 8, 0, ANIM_POSE_FLY, ANIM_MONSTER_HURT, 0, 100, 0, 5},
+    {555, 68, 0, 8, 0, ANIM_POSE_FLY, ANIM_MONSTER_HURT, 0, 60, 0, 3},
+    {750, 18, 0, 2, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+    {1000, 0, 0, 0, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+};
+
+// Perfect-timing strike: gather energy, then a longer, heavier flying kick.
+// It shares the impact frame with the ordinary attack so the damage number
+// still lands on contact.
+static const anim_key_t HERO_ATTACK_HEAVY_KEYS[] = {
+    {0, 0, 0, 0, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+    {140, -10, 0, 0, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+    {260, -4, 0, 0, 0, ANIM_POSE_CHARGE, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+    {360, 0, 0, 0, 0, ANIM_POSE_CHARGE, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+    {400, 20, 0, 0, 0, ANIM_POSE_FLY, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+    {439, 78, 0, 12, 0, ANIM_POSE_FLY, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+    {440, 78, 0, 12, 0, ANIM_POSE_KICK, ANIM_MONSTER_HURT, 0, 100, 0, 5},
+    {590, 78, 0, 12, 0, ANIM_POSE_KICK, ANIM_MONSTER_HURT, 0, 80, 0, 4},
+    {800, 24, 0, 4, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_HURT, 0, 30, 0, 2},
+    {1000, 0, 0, 0, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+};
+
 // Roar -> pounce. The hero only guards and flashes on the impact frame.
 static const anim_key_t ENEMY_ATTACK_KEYS[] = {
     {0, 0, 0, 0, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
     {220, 0, 0, -8, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_ROAR, 0, 0, 0, 0},
     {320, 0, 0, 0, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_ATTACK, 0, 0, 0, 0},
+    {474, -8, 0, -68, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_ATTACK, 0, 0, 0, 0},
+    {475, -8, 0, -68, 0, ANIM_POSE_GUARD, ANIM_MONSTER_ATTACK, 100, 0, 0, 5},
+    {555, -8, 0, -68, 0, ANIM_POSE_GUARD, ANIM_MONSTER_ATTACK, 70, 0, 0, 3},
+    {760, 0, 0, -10, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+    {1000, 0, 0, 0, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+};
+
+// Alternate enemy attack: the monster gathers itself before the pounce. The
+// hit still lands on the same 475/1000 frame.
+static const anim_key_t ENEMY_ATTACK_CHARGE_KEYS[] = {
+    {0, 0, 0, 0, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+    {200, 0, 0, 0, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_CHARGE, 0, 0, 0, 0},
+    {320, 0, 0, 0, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_CHARGE, 0, 0, 0, 0},
+    {400, 0, 0, -20, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_ATTACK, 0, 0, 0, 0},
     {474, -8, 0, -68, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_ATTACK, 0, 0, 0, 0},
     {475, -8, 0, -68, 0, ANIM_POSE_GUARD, ANIM_MONSTER_ATTACK, 100, 0, 0, 5},
     {555, -8, 0, -68, 0, ANIM_POSE_GUARD, ANIM_MONSTER_ATTACK, 70, 0, 0, 3},
@@ -156,6 +200,13 @@ static const anim_def_t DEFS[ANIM_COUNT] = {
                               (uint8_t)KEY_COUNT(ULTIMATE_CHARGE_KEYS), 0},
     [ANIM_ULTIMATE_FIRE] = {ULTIMATE_FIRE_KEYS,
                             (uint8_t)KEY_COUNT(ULTIMATE_FIRE_KEYS), 0},
+    [ANIM_HERO_ATTACK_PUNCH] = {HERO_ATTACK_PUNCH_KEYS,
+                                (uint8_t)KEY_COUNT(HERO_ATTACK_PUNCH_KEYS), 440},
+    [ANIM_HERO_ATTACK_HEAVY] = {HERO_ATTACK_HEAVY_KEYS,
+                                (uint8_t)KEY_COUNT(HERO_ATTACK_HEAVY_KEYS), 440},
+    [ANIM_ENEMY_ATTACK_CHARGE] = {ENEMY_ATTACK_CHARGE_KEYS,
+                                  (uint8_t)KEY_COUNT(ENEMY_ATTACK_CHARGE_KEYS),
+                                  475},
 };
 
 // Linear interpolation, used for flash and shake where an immediate onset

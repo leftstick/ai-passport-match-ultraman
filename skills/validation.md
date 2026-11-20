@@ -19,8 +19,10 @@ existing repository/firmware checks, these run:
 - `tests/test_archive_firmware.py`: ELF/image correspondence, checksums, layout,
   malformed manifests, unsafe paths, repeated archives, and copy failures.
 
-The full gate creates a real bundle; run `python3 tools/archive_firmware.py
-verify <archive-directory>` against its reported path. On a checkout authorized
+The full gate writes `build/FoloToy-AI-Passport-full.bin`. With
+`PASSPORT_FIRMWARE_ARCHIVE=1` it also creates a real bundle; run
+`python3 tools/archive_firmware.py verify <archive-directory>` against its
+reported path. On a checkout authorized
 for installation, run the installer, repeat it to check idempotence, then run
 `--check`. Never overwrite a user's conflicting skill to complete a test.
 

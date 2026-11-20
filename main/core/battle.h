@@ -101,6 +101,10 @@ typedef struct {
     bool low_age;
     bool current_review;
 
+    // Extra score percentage added to each answered question. Endless runs
+    // raise it every time the player chooses to keep going.
+    uint8_t score_bonus_pct;
+
     int32_t phase_ms;
     int32_t question_ms;
     int32_t question_remaining_ms;
@@ -152,6 +156,7 @@ void battle_queue_review(battle_t *battle, const math_question_t *questions,
 bool battle_question_is_review(const battle_t *battle);
 void battle_set_low_age(battle_t *battle, bool low_age);
 bool battle_low_age(const battle_t *battle);
+void battle_set_score_bonus(battle_t *battle, uint8_t percent);
 
 bool battle_can_ultimate(const battle_t *battle);
 bool battle_is_over(const battle_t *battle);

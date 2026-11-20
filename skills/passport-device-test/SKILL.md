@@ -23,7 +23,9 @@ acceptance checklist, not every peripheral test for every change.
    In a remote/VM/WSL environment without access, say access is unavailable, not
    that the physical device is disconnected. Provide local steps if necessary.
 3. Bind the target device to an exact verified firmware and the user's data
-   requirements. For a gate-produced bundle run
+   requirements. For the gate-produced `build/FoloToy-AI-Passport-full.bin`,
+   record its SHA-256. For a gate-produced archive
+   (`PASSPORT_FIRMWARE_ARCHIVE=1`) run
    `python3 tools/archive_firmware.py verify <archive-directory>` and compare
    the chosen image hash with its manifest. For other builds require equivalent
    target/layout evidence; do not assume any `.bin` is a merged image.

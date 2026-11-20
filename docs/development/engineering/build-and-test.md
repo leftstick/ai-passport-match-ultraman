@@ -87,11 +87,13 @@ or project, and do not disable real-time protection.
 
 The tracked `dependencies.lock` pins Managed Component resolution. After changing an `idf_component.yml`, regenerate the lock with ESP-IDF 5.5.3, review version changes, and commit it with the manifest. An ordinary build must not leave an unexplained lock-file diff.
 
-Firmware validation uses a fresh temporary build directory and an isolated `sdkconfig` generated from the tracked defaults. It does not consume or overwrite a developer's root `sdkconfig`. Before cleaning the temporary build, it archives the verified firmware and matching debug artifacts, then copies the verified merged image to `build/FoloToy-AI-Passport-full.bin`. The gate also validates the [configured firmware layout](firmware-layout.md): image offsets from `flash_args`, partition-table MD5, bounds and non-overlap, and an application that starts in and fits its configured app partition. User-defined partition layouts are allowed.
+Firmware validation uses a fresh temporary build directory and an isolated `sdkconfig` generated from the tracked defaults. It does not consume or overwrite a developer's root `sdkconfig`. Before cleaning the temporary build, it copies the verified merged image to `build/FoloToy-AI-Passport-full.bin`, overwriting the previous image; the gate does not create a per-build archive directory. The gate also validates the [configured firmware layout](firmware-layout.md): image offsets from `flash_args`, partition-table MD5, bounds and non-overlap, and an application that starts in and fits its configured app partition. User-defined partition layouts are allowed.
 
 ### Retain matching crash-debugging artifacts
 
-Each successful firmware gate retains a local bundle under
+A normal gate leaves only `build/FoloToy-AI-Passport-full.bin`. Set
+`PASSPORT_FIRMWARE_ARCHIVE=1` when running `./tools/validate.sh --firmware` (or
+the complete gate) to also retain a local bundle under
 `build/firmware/<full-bin-sha256>/`. Its `manifest.json` records full-image and ELF
 SHA-256 values, project/application/IDF version fields, offsets, and each retained
 file's size and hash. The archive includes:

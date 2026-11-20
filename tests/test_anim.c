@@ -100,6 +100,49 @@ static void test_ultimate_charges_then_fires(void)
     assert(fade.hero_pose == ANIM_POSE_FIGHT);
 }
 
+static void test_variant_attacks_share_impact_frame(void)
+{
+    // Variants change the silhouette, never the moment damage lands.
+    assert(anim_impact_ms(ANIM_HERO_ATTACK_PUNCH, HERO_ATTACK_MS) == 229u);
+    assert(anim_impact_ms(ANIM_HERO_ATTACK_HEAVY, HERO_ATTACK_MS) == 229u);
+    assert(anim_impact_ms(ANIM_ENEMY_ATTACK_CHARGE, ENEMY_ATTACK_MS) == 361u);
+
+    const anim_frame_t punch =
+        anim_sample(ANIM_HERO_ATTACK_PUNCH, 229, HERO_ATTACK_MS);
+    assert(punch.hero_pose == ANIM_POSE_FLY);
+    assert(punch.hero_dx == 68);
+    assert(punch.monster_pose == ANIM_MONSTER_HURT);
+    assert(punch.monster_dx == 8);
+    assert(punch.monster_flash == 100);
+    assert(punch.shake == 5);
+
+    const anim_frame_t gather =
+        anim_sample(ANIM_HERO_ATTACK_HEAVY, 150, HERO_ATTACK_MS);
+    assert(gather.hero_pose == ANIM_POSE_CHARGE);
+
+    const anim_frame_t heavy =
+        anim_sample(ANIM_HERO_ATTACK_HEAVY, 229, HERO_ATTACK_MS);
+    assert(heavy.hero_pose == ANIM_POSE_KICK);
+    assert(heavy.hero_dx == 78);
+    assert(heavy.monster_pose == ANIM_MONSTER_HURT);
+    assert(heavy.monster_dx == 12);
+    assert(heavy.monster_flash == 100);
+
+    const anim_frame_t roar =
+        anim_sample(ANIM_ENEMY_ATTACK_CHARGE, 200, ENEMY_ATTACK_MS);
+    assert(roar.monster_pose == ANIM_MONSTER_CHARGE);
+    assert(roar.hero_flash == 0);
+
+    const anim_frame_t maul =
+        anim_sample(ANIM_ENEMY_ATTACK_CHARGE, 361, ENEMY_ATTACK_MS);
+    assert(maul.monster_pose == ANIM_MONSTER_ATTACK);
+    assert(maul.monster_dx == -68);
+    assert(maul.hero_pose == ANIM_POSE_GUARD);
+    assert(maul.hero_dx == -8);
+    assert(maul.hero_flash == 100);
+    assert(maul.shake == 5);
+}
+
 static void test_beam_and_terminal_actions(void)
 {
     assert(anim_impact_ms(ANIM_BEAM, 3000) == 0);
@@ -163,6 +206,7 @@ int main(void)
     test_hero_attack_impact_alignment();
     test_enemy_attack_only_hurts_hero_on_impact();
     test_ultimate_charges_then_fires();
+    test_variant_attacks_share_impact_frame();
     test_beam_and_terminal_actions();
     test_elapsed_is_clamped();
     test_sample_stays_in_range();

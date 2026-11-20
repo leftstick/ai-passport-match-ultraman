@@ -17,8 +17,10 @@
 - `tests/test_archive_firmware.py`：ELF／镜像匹配、哈希、布局、错误清单、
   危险路径、重复归档和复制失败。
 
-完整门禁会创建实际归档；对输出路径执行 `python3 tools/archive_firmware.py
-verify <archive-directory>`。在获准安装的仓库执行安装，再次执行确认幂等，
+完整门禁会写入 `build/FoloToy-AI-Passport-full.bin`；设置
+`PASSPORT_FIRMWARE_ARCHIVE=1` 时还会创建实际归档，对输出路径执行
+`python3 tools/archive_firmware.py verify <archive-directory>`。在获准安装的
+仓库执行安装，再次执行确认幂等，
 最后运行 `--check`。不得为完成测试而覆盖有冲突的用户技能。
 
 有 skill-creator 包时，对五个技能目录分别运行其中的

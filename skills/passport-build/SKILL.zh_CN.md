@@ -28,14 +28,16 @@ description: 验证并打包 FoloToy AI Passport 固件，交付已校验的合�
 
 ## 确定准确的交付产物
 
-门禁保留 `build/FoloToy-AI-Passport-full.bin`，以及按内容哈希归档的
-`build/firmware/<full-bin-sha256>/`。交接前运行：
+门禁保留 `build/FoloToy-AI-Passport-full.bin`，并覆盖上一版镜像。仅在设置
+`PASSPORT_FIRMWARE_ARCHIVE=1` 时，才会额外生成按内容哈希归档的
+`build/firmware/<full-bin-sha256>/`。存在归档时，交接前运行：
 
 ```text
 python3 tools/archive_firmware.py verify <archive-directory>
 ```
 
-报告实际归档路径、完整镜像哈希，以及 `manifest.json` 中匹配的 ELF 身份。
+报告实际镜像路径与完整镜像哈希；有归档时再补充归档路径和 `manifest.json`
+中匹配的 ELF 身份。
 归档保留 ELF、MAP、合并镜像、应用镜像、bootloader、分区表及 `flash_args`。
 额外自定义分区镜像不单独保存，分段烧录需要时应另行取得。相同固件重复归档
 按构建指南复用首份已验证 MAP。不能用之后重新编译的 ELF 替代，尤其是存在

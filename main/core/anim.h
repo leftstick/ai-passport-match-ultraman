@@ -23,6 +23,10 @@ typedef enum {
     ANIM_COMBO_FINISH,
     ANIM_ULTIMATE_CHARGE,
     ANIM_ULTIMATE_FIRE,
+    // Ordinary-strike variants so one hero does not repeat a single action.
+    ANIM_HERO_ATTACK_PUNCH,
+    ANIM_HERO_ATTACK_HEAVY,
+    ANIM_ENEMY_ATTACK_CHARGE,
     ANIM_COUNT,
 } anim_id_t;
 

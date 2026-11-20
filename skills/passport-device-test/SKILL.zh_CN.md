@@ -19,8 +19,10 @@ description: 为已授权的 FoloToy AI Passport 烧录与真机验收提供设�
 2. 未发现设备时，提示开机后使用支持数据传输的数据线连接电脑 USB，用户
    确认连接后重新检测。远程／虚拟机／WSL 无访问能力时，说明无法访问，
    不声称实体设备没插线；必要时提供用户本机操作步骤。
-3. 将目标设备与准确的已验证固件、用户的数据保留要求对应起来。门禁归档
-   使用 `python3 tools/archive_firmware.py verify <archive-directory>`，
+3. 将目标设备与准确的已验证固件、用户的数据保留要求对应起来。门禁生成的
+   `build/FoloToy-AI-Passport-full.bin` 记录 SHA-256；设置
+   `PASSPORT_FIRMWARE_ARCHIVE=1` 后的门禁归档使用
+   `python3 tools/archive_firmware.py verify <archive-directory>`，
    核对所选镜像哈希与清单。其他构建需要等价的目标／分区证据，不能假设
    任意 `.bin` 都是合并镜像。
 4. 写入前确认具体端口、固件、写入范围／数据影响和本次烧录授权。已有明确

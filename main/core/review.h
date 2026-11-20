@@ -30,7 +30,14 @@ bool review_store_record(review_store_t *store, const math_question_t *question,
 
 // Newest first. Records from `stage` come first; the remaining slots are
 // filled with other stages so an empty stage still has material to review.
+// Questions above `max_math_stage` are skipped; pass 0 to disable the cap.
 uint8_t review_store_collect(const review_store_t *store, uint8_t stage,
-                             review_record_t *out, uint8_t max);
+                             uint8_t max_math_stage, review_record_t *out,
+                             uint8_t max);
+
+// A correct review answer lowers the mistake count. The record leaves the pool
+// once its count reaches zero. Returns true when the question was removed.
+bool review_store_mastered(review_store_t *store,
+                           const math_question_t *question);
 
 void review_store_clear(review_store_t *store);

@@ -303,6 +303,11 @@ bool battle_low_age(const battle_t *battle)
     return battle->low_age;
 }
 
+void battle_set_score_bonus(battle_t *battle, uint8_t percent)
+{
+    battle->score_bonus_pct = percent;
+}
+
 battle_event_t battle_move_cursor(battle_t *battle, int delta)
 {
     if (battle->phase != BATTLE_PHASE_QUESTION || delta == 0) {
@@ -342,6 +347,9 @@ battle_event_t battle_confirm(battle_t *battle)
                 // is the behaviour the loop wants to reinforce.
                 gain += gain / 2;
                 add_gauge(battle, 1);
+            }
+            if (battle->score_bonus_pct > 0) {
+                gain += gain * battle->score_bonus_pct / 100;
             }
             battle->score += gain;
             add_gauge(battle, gauge_gain(battle, 4));

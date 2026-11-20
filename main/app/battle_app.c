@@ -72,6 +72,7 @@ static const char *TAG = "battle_app";
 
 #define ACTION_ANIM_MS 140
 #define INPUT_BUFFER_MS 150
+#define READY_MS 1000
 #define POPUP_COUNT 4
 #define POPUP_LIFE_US 620000LL
 #define HP_TWEEN_X10_STEP 3
@@ -111,6 +112,7 @@ typedef enum {
     OVERLAY_CLEAR,
     OVERLAY_OVER,
     OVERLAY_REVIEW,
+    OVERLAY_WAVE,
 } overlay_t;
 
 typedef enum {
@@ -149,8 +151,12 @@ typedef struct {
     lv_obj_t *pill[CAMPAIGN_DIFFICULTY_COUNT];
     lv_obj_t *pill_text[CAMPAIGN_DIFFICULTY_COUNT];
     lv_obj_t *diff_detail;
-    lv_obj_t *mode_line;
+    lv_obj_t *mode_pill[MODE_COUNT];
+    lv_obj_t *mode_name[MODE_COUNT];
+    lv_obj_t *mode_info[MODE_COUNT];
+    lv_obj_t *start_panel;
     lv_obj_t *start_label;
+    lv_obj_t *footer;
 } home_ui_t;
 
 typedef struct {
@@ -223,6 +229,8 @@ static struct {
     bool low_age;
     bool reduce_motion;
     uint8_t wave;
+    uint8_t pending_stage;
+    uint8_t run_bonus_pct;
     uint16_t run_hp;
     int32_t run_score;
     uint32_t endless_best;
@@ -252,6 +260,7 @@ static struct {
 
     int64_t last_tick_us;
     int64_t arena_flash_until_us;
+    int64_t ready_until_us;
 
     int8_t previous_pose;
     int8_t previous_monster_pose;
@@ -523,8 +532,9 @@ static void record_mistake(void)
 // first, then anything else the pool holds.
 static void prepare_review_view(void)
 {
+    const uint8_t tier = campaign_stage(s_app.battle.stage)->math_stage;
     s_app.review_view_count =
-        review_store_collect(&s_app.review, s_app.battle.stage,
+        review_store_collect(&s_app.review, s_app.battle.stage, tier,
                              s_app.review_view, REVIEW_VIEW_MAX);
     s_app.review_page = 0;
     request_save();
@@ -538,6 +548,44 @@ static uint8_t gauntlet_stage(uint8_t wave)
         wave = 1;
     }
     return stages[wave - 1];
+}
+
+static const char *mode_title(game_mode_t mode)
+{
+    switch (mode) {
+    case MODE_ENDLESS:
+        return "无尽";
+    case MODE_GAUNTLET:
+        return "三连战";
+    default:
+        return "闯关";
+    }
+}
+
+static bool mode_unlocked(game_mode_t mode)
+{
+    switch (mode) {
+    case MODE_ENDLESS:
+        // Clearing stage 1 unlocks the second stage, which gates endless.
+        return s_app.unlocked >= 1;
+    case MODE_GAUNTLET:
+        // Clearing stage 5 unlocks stage 6; the gauntlet starts there.
+        return s_app.unlocked >= 5;
+    default:
+        return true;
+    }
+}
+
+static const char *mode_lock_hint(game_mode_t mode)
+{
+    switch (mode) {
+    case MODE_ENDLESS:
+        return "通关第1关解锁 · 长按↑换模式";
+    case MODE_GAUNTLET:
+        return "通关第5关解锁 · 长按↑换模式";
+    default:
+        return "长按OK难度 · ↑模式 · ↓设置";
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -643,18 +691,41 @@ static void refresh_home(void)
     snprintf(buf, sizeof(buf), "%s · %s", diff->name, diff->detail);
     label_set(s_app.home.diff_detail, buf);
 
-    if (s_app.mode == MODE_ENDLESS) {
-        snprintf(buf, sizeof(buf), "模式:无尽 · 最高 %u",
-                 (unsigned)s_app.endless_best);
-    } else if (s_app.mode == MODE_GAUNTLET) {
-        snprintf(buf, sizeof(buf), "模式:三连战 · 最高 %u",
-                 (unsigned)s_app.gauntlet_best);
-    } else {
-        snprintf(buf, sizeof(buf), "模式:闯关 · ↑↓换英雄");
+    for (int i = 0; i < MODE_COUNT; i++) {
+        const game_mode_t mode = (game_mode_t)i;
+        const bool selected = mode == s_app.mode;
+        const bool locked = !mode_unlocked(mode);
+        lv_obj_set_style_bg_color(s_app.home.mode_pill[i],
+                                  lv_color_hex(selected ? COL_TILE_SEL : COL_TILE), 0);
+        lv_obj_set_style_border_width(s_app.home.mode_pill[i], selected ? 2 : 0, 0);
+        lv_obj_set_style_border_color(s_app.home.mode_pill[i],
+                                      lv_color_hex(COL_ACCENT), 0);
+        label_color(s_app.home.mode_name[i], selected ? COL_TEXT : COL_DIM);
+        if (locked) {
+            label_set(s_app.home.mode_info[i], "锁");
+            label_color(s_app.home.mode_info[i], COL_DANGER);
+        } else if (mode == MODE_CAMPAIGN) {
+            snprintf(buf, sizeof(buf), "%d关", (int)CAMPAIGN_STAGE_COUNT);
+            label_set(s_app.home.mode_info[i], buf);
+            label_color(s_app.home.mode_info[i], COL_DIM);
+        } else {
+            const uint32_t best = mode == MODE_ENDLESS ? s_app.endless_best
+                                                       : s_app.gauntlet_best;
+            snprintf(buf, sizeof(buf), "高%u", (unsigned)best);
+            label_set(s_app.home.mode_info[i], buf);
+            label_color(s_app.home.mode_info[i], COL_ACCENT);
+        }
     }
-    label_set(s_app.home.mode_line, buf);
-    label_color(s_app.home.mode_line,
-                s_app.mode == MODE_CAMPAIGN ? COL_DIM : COL_ACCENT);
+
+    const bool mode_locked = !mode_unlocked(s_app.mode);
+    label_set(s_app.home.start_label, mode_locked ? "未解锁" : "出击");
+    label_color(s_app.home.start_label, mode_locked ? COL_DIM : COL_INK);
+    lv_obj_set_style_bg_color(s_app.home.start_panel,
+                              lv_color_hex(mode_locked ? COL_TILE : hero->accent_color), 0);
+    label_set(s_app.home.footer,
+              mode_locked ? mode_lock_hint(s_app.mode)
+                          : "长按OK难度 · ↑模式 · ↓设置");
+    label_color(s_app.home.footer, mode_locked ? COL_DANGER : COL_DIM);
 
     for (int i = 0; i < CAMPAIGN_DIFFICULTY_COUNT; i++) {
         const bool selected = i == s_app.difficulty;
@@ -689,32 +760,44 @@ static void build_home(void)
 
     s_app.home.hero_img = lv_image_create(scr);
     lv_image_set_src(s_app.home.hero_img, sprites_hero(s_app.hero, SPRITE_POSE_IDLE));
-    lv_obj_set_pos(s_app.home.hero_img, 84, 56);
+    lv_obj_set_pos(s_app.home.hero_img, 84, 52);
     lv_obj_set_size(s_app.home.hero_img, 72, 88);
 
-    s_app.home.hero_name = make_center(scr, 0, 148, SCREEN_W, "", &app_font_20,
+    s_app.home.hero_name = make_center(scr, 0, 144, SCREEN_W, "", &app_font_20,
                                        hero->accent_color);
-    s_app.home.hero_perk = make_center(scr, 0, 170, SCREEN_W, "", &app_font_12, COL_DIM);
-    s_app.home.hero_index = make_center(scr, 0, 186, SCREEN_W, "", &app_font_12, COL_DIM);
+    s_app.home.hero_perk = make_center(scr, 0, 168, SCREEN_W, "", &app_font_12, COL_DIM);
+    s_app.home.hero_index = make_center(scr, 0, 184, SCREEN_W, "", &app_font_12, COL_DIM);
 
-    make_label(scr, 10, 206, 30, "难度", &app_font_12, COL_DIM);
+    make_label(scr, 10, 202, 30, "难度", &app_font_12, COL_DIM);
     for (int i = 0; i < CAMPAIGN_DIFFICULTY_COUNT; i++) {
         const int x = 40 + i * 66;
-        s_app.home.pill[i] = make_panel(scr, x, 202, 62, 22, COL_TILE, 7);
-        s_app.home.pill_text[i] = make_center(scr, x, 205, 62,
+        s_app.home.pill[i] = make_panel(scr, x, 198, 62, 22, COL_TILE, 7);
+        s_app.home.pill_text[i] = make_center(scr, x, 201, 62,
                                               campaign_difficulty(i)->name,
                                               &app_font_12, COL_DIM);
     }
-    s_app.home.diff_detail = make_center(scr, 0, 228, SCREEN_W, "", &app_font_12,
+    s_app.home.diff_detail = make_center(scr, 0, 224, SCREEN_W, "", &app_font_12,
                                          COL_DIM);
-    s_app.home.mode_line = make_center(scr, 0, 244, SCREEN_W, "", &app_font_12,
-                                       COL_DIM);
-    make_panel(scr, 70, 262, 100, 28, hero->accent_color, 9);
-    s_app.home.start_label = make_center(scr, 70, 264, 100, "出击", &app_font_20,
+
+    make_label(scr, 10, 246, 30, "模式", &app_font_12, COL_DIM);
+    for (int i = 0; i < MODE_COUNT; i++) {
+        const int x = 40 + i * 66;
+        s_app.home.mode_pill[i] = make_panel(scr, x, 240, 62, 32, COL_TILE, 7);
+        s_app.home.mode_name[i] = make_center(scr, x, 242, 62,
+                                              mode_title((game_mode_t)i),
+                                              &app_font_12, COL_DIM);
+        s_app.home.mode_info[i] = make_center(scr, x, 256, 62, "",
+                                              &app_font_12, COL_DIM);
+    }
+
+    s_app.home.start_panel = make_panel(scr, 70, 276, 100, 26,
+                                        hero->accent_color, 9);
+    s_app.home.start_label = make_center(scr, 70, 278, 100, "出击", &app_font_20,
                                          COL_INK);
 
-    make_center(scr, 0, 300, SCREEN_W, "长按OK难度 · ↑模式 · ↓设置",
-                &app_font_12, COL_DIM);
+    s_app.home.footer = make_center(scr, 0, 304, SCREEN_W,
+                                    "长按OK难度 · ↑模式 · ↓设置",
+                                    &app_font_12, COL_DIM);
 
     page_switch(scr);
     refresh_home();
@@ -1055,11 +1138,17 @@ static void refresh_battle_texts(void)
     default:
         break;
     }
+    const bool ready = s_app.ready_until_us > now;
+    if (ready) {
+        hint = "准备…按OK开始";
+    }
     label_set(s_app.battle_ui.hint, hint);
-    if ((battle->phase == BATTLE_PHASE_QUESTION &&
-         s_app.notice_until_us > now) ||
-        battle->phase == BATTLE_PHASE_CRITICAL ||
-        battle->phase == BATTLE_PHASE_ULTIMATE) {
+    if (ready) {
+        label_color(s_app.battle_ui.hint, COL_GOLD);
+    } else if ((battle->phase == BATTLE_PHASE_QUESTION &&
+                s_app.notice_until_us > now) ||
+               battle->phase == BATTLE_PHASE_CRITICAL ||
+               battle->phase == BATTLE_PHASE_ULTIMATE) {
         label_color(s_app.battle_ui.hint, COL_GOLD);
     } else if (battle->phase == BATTLE_PHASE_GUARD) {
         label_color(s_app.battle_ui.hint, COL_DANGER);
@@ -1108,7 +1197,10 @@ static void refresh_battle_texts(void)
         label_set(s_app.battle_ui.combo, "");
     }
 
-    if (battle_can_ultimate(battle)) {
+    if (ready) {
+        label_set(s_app.battle_ui.footer, "准备…按OK开始");
+        label_color(s_app.battle_ui.footer, COL_GOLD);
+    } else if (battle_can_ultimate(battle)) {
         label_set(s_app.battle_ui.footer, "必杀就绪!长按↑发动");
         label_color(s_app.battle_ui.footer, COL_GOLD);
     } else if (battle->phase == BATTLE_PHASE_GUARD) {
@@ -1207,15 +1299,15 @@ static const char *ultimate_title(uint8_t hero)
 {
     switch (hero) {
     case 0:
-        return "蓝焰 · 超能光线";
+        return "赛罗 · 赛罗双射线";
     case 1:
-        return "赤焰 · 烈焰连击";
+        return "泰罗 · 斯特利姆光线";
     case 2:
-        return "翡翠 · 时光领域";
+        return "高斯 · 满月光波";
     case 3:
-        return "金辉 · 聚能重击";
+        return "奥特之王 · 王者闪光";
     case 4:
-        return "紫电 · 雷霆四连";
+        return "迪迦 · 泽佩利敖光线";
     default:
         return "必杀技!";
     }
@@ -1483,14 +1575,43 @@ static void update_panel(uint32_t dt_ms)
                    ACTION_Y + s_app.action_offset);
 }
 
+// Pick the strike that matches the current combo state. Every ordinary hit
+// alternates between a flying kick and a flying punch, and the starting move
+// differs per hero, so repeated answers do not replay one animation. Perfect
+// timing upgrades the strike to a charged heavy kick; combo rewards keep their
+// dedicated pursuit and finisher moves.
+static anim_id_t hero_attack_anim(const battle_t *battle)
+{
+    if (battle->combo_finisher) {
+        return ANIM_COMBO_FINISH;
+    }
+    if (battle->crit_pursuit) {
+        return ANIM_HERO_PURSUIT;
+    }
+    if (battle->crit_perfect) {
+        return ANIM_HERO_ATTACK_HEAVY;
+    }
+    return ((battle->correct_count + battle->hero) & 1u) != 0
+               ? ANIM_HERO_ATTACK_PUNCH
+               : ANIM_HERO_ATTACK;
+}
+
+// Enemy attacks also alternate: a direct roar-pounce or a charge-up pounce.
+static anim_id_t enemy_attack_anim(const battle_t *battle)
+{
+    return ((battle->wrong_count + battle->stage) & 1u) != 0
+               ? ANIM_ENEMY_ATTACK_CHARGE
+               : ANIM_ENEMY_ATTACK;
+}
+
 static void schedule_impact(impact_kind_t kind, int damage)
 {
-    anim_id_t id = ANIM_HERO_ATTACK;
+    anim_id_t id = hero_attack_anim(&s_app.battle);
     uint32_t duration = BATTLE_ATTACK_MS;
     uint32_t delay_ms = 0;
 
     if (kind == IMPACT_ENEMY) {
-        id = ANIM_ENEMY_ATTACK;
+        id = enemy_attack_anim(&s_app.battle);
         duration = BATTLE_ENEMY_MS;
     } else if (kind == IMPACT_ULT_STEP) {
         // Ultimate hits are judged on the input, so the visual reaction only
@@ -1498,10 +1619,6 @@ static void schedule_impact(impact_kind_t kind, int damage)
         delay_ms = 180;
     } else if (kind == IMPACT_GUARD_BLOCK) {
         delay_ms = 120;
-    } else if (kind == IMPACT_COMBO_FINISH) {
-        id = ANIM_COMBO_FINISH;
-    } else if (kind == IMPACT_HERO_PURSUIT) {
-        id = ANIM_HERO_PURSUIT;
     }
 
     if (delay_ms == 0) {
@@ -1591,18 +1708,12 @@ static void refresh_battle_animation(void)
 
     switch (battle->phase) {
     case BATTLE_PHASE_ATTACK:
-        if (battle->combo_finisher) {
-            id = ANIM_COMBO_FINISH;
-        } else if (battle->crit_pursuit) {
-            id = ANIM_HERO_PURSUIT;
-        } else {
-            id = ANIM_HERO_ATTACK;
-        }
+        id = hero_attack_anim(battle);
         duration = BATTLE_ATTACK_MS;
         elapsed = (uint32_t)(BATTLE_ATTACK_MS - battle->phase_ms);
         break;
     case BATTLE_PHASE_ENEMY:
-        id = ANIM_ENEMY_ATTACK;
+        id = enemy_attack_anim(battle);
         duration = BATTLE_ENEMY_MS;
         elapsed = (uint32_t)(BATTLE_ENEMY_MS - battle->phase_ms);
         break;
@@ -1850,7 +1961,7 @@ static void build_battle(void)
     ui->gauge_text = make_label(scr, 178, 131, 56, "", &app_font_12, COL_DIM);
 
     ui->question = make_center(scr, 0, 146, SCREEN_W, "", &app_font_20, COL_TEXT);
-    ui->hint = make_center(scr, 0, 168, SCREEN_W, "", &app_font_12, COL_DIM);
+    ui->hint = make_center(scr, 0, 168, SCREEN_W, "", &app_font_14, COL_DIM);
     ui->timer = make_bar(scr, 6, 186, 228, 5, COL_EDGE, COL_OK);
     ui->score = make_label(scr, 6, 193, 90, "", &app_font_12, COL_DIM);
     ui->combo = make_label(scr, 150, 193, 84, "", &app_font_12, COL_GOLD);
@@ -1973,21 +2084,28 @@ static uint8_t overlay_base_items(void)
     case OVERLAY_PAUSE:
         return 3;
     case OVERLAY_CLEAR:
-        if (s_app.mode == MODE_GAUNTLET) {
+        if (s_app.mode != MODE_CAMPAIGN) {
             return 2;
         }
         return s_app.battle.stage + 1 >= CAMPAIGN_STAGE_COUNT ? 2 : 3;
     case OVERLAY_OVER:
+    case OVERLAY_WAVE:
         return 2;
     default:
         return 0;
     }
 }
 
+static bool overlay_can_review(void)
+{
+    return s_app.overlay != OVERLAY_PAUSE &&
+           s_app.overlay != OVERLAY_WAVE &&
+           s_app.review_view_count > 0;
+}
+
 static const char *overlay_item_text(uint8_t index)
 {
-    if (s_app.overlay != OVERLAY_PAUSE &&
-        s_app.review_view_count > 0 && index == overlay_base_items()) {
+    if (overlay_can_review() && index == overlay_base_items()) {
         return "错题回顾";
     }
     if (s_app.overlay == OVERLAY_PAUSE) {
@@ -1995,8 +2113,8 @@ static const char *overlay_item_text(uint8_t index)
         return index < 3 ? items[index] : "";
     }
     if (s_app.overlay == OVERLAY_CLEAR) {
-        if (s_app.mode == MODE_GAUNTLET) {
-            static const char *const items[] = { "再来一轮", "回主页" };
+        if (s_app.mode != MODE_CAMPAIGN) {
+            static const char *const items[] = { "再来一局", "回主页" };
             return index < 2 ? items[index] : "";
         }
         const bool last = s_app.battle.stage + 1 >= CAMPAIGN_STAGE_COUNT;
@@ -2011,6 +2129,10 @@ static const char *overlay_item_text(uint8_t index)
         static const char *const items[] = { "重来", "回主页" };
         return index < 2 ? items[index] : "";
     }
+    if (s_app.overlay == OVERLAY_WAVE) {
+        static const char *const items[] = { "继续", "收手" };
+        return index < 2 ? items[index] : "";
+    }
     return "";
 }
 
@@ -2020,7 +2142,7 @@ static uint8_t overlay_item_count(void)
         return 1;
     }
     uint8_t count = overlay_base_items();
-    if (s_app.overlay != OVERLAY_PAUSE && s_app.review_view_count > 0) {
+    if (overlay_can_review()) {
         count++;
     }
     return count;
@@ -2095,6 +2217,9 @@ static void rebuild_overlay(void)
     if (s_app.overlay == OVERLAY_CLEAR) {
         item_y = 112;
         card_h = item_y + (int)items * 32 + 6;
+    } else if (s_app.overlay == OVERLAY_WAVE) {
+        item_y = 96;
+        card_h = item_y + (int)items * 32 + 6;
     } else if (s_app.overlay == OVERLAY_OVER &&
                s_app.mode != MODE_CAMPAIGN) {
         item_y = 76;
@@ -2111,13 +2236,22 @@ static void rebuild_overlay(void)
     lv_obj_set_style_border_width(card, 2, 0);
     lv_obj_set_style_border_color(card, lv_color_hex(COL_EDGE), 0);
 
+    char wave_title[24];
     const char *title = "";
     const char *sub = "";
     if (s_app.overlay == OVERLAY_PAUSE) {
         title = "暂停";
         sub = "休息一下,继续战斗";
+    } else if (s_app.overlay == OVERLAY_WAVE) {
+        snprintf(wave_title, sizeof(wave_title), "第 %u 战胜利",
+                 (unsigned)s_app.wave);
+        title = wave_title;
+        sub = "继续冒险,还是见好就收?";
     } else if (s_app.overlay == OVERLAY_CLEAR) {
-        if (s_app.mode == MODE_GAUNTLET) {
+        if (s_app.mode == MODE_ENDLESS) {
+            title = "挑战结束";
+            sub = "见好就收,分数已结算";
+        } else if (s_app.mode == MODE_GAUNTLET) {
             title = "三连战达成!";
             sub = "三名强敌全部击破";
         } else if (s_app.battle.stage + 1 >= CAMPAIGN_STAGE_COUNT) {
@@ -2141,24 +2275,44 @@ static void rebuild_overlay(void)
                 s_app.overlay == OVERLAY_OVER ? COL_DANGER : COL_GOLD);
 
     char line[64];
-    if (s_app.overlay == OVERLAY_CLEAR) {
-        if (s_app.mode == MODE_GAUNTLET) {
-            make_center(card, 0, 40, 212, "★ ★ ★ 三连胜", &app_font_20, COL_GOLD);
+    if (s_app.overlay == OVERLAY_WAVE) {
+        snprintf(line, sizeof(line), "得分 %d · 生命 %d/%d",
+                 (int)s_app.run_score, (int)s_app.run_hp,
+                 (int)s_app.battle.hero_hp_max);
+        make_center(card, 0, 56, 212, line, &app_font_12, COL_TEXT);
+        const unsigned next_bonus =
+            s_app.run_bonus_pct < 100 ? s_app.run_bonus_pct + 10u : 100u;
+        snprintf(line, sizeof(line), "继续:回1心 · 得分 +%u%%", next_bonus);
+        make_center(card, 0, 74, 212, line, &app_font_12, COL_ACCENT);
+    } else if (s_app.overlay == OVERLAY_CLEAR) {
+        if (s_app.mode == MODE_ENDLESS) {
+            snprintf(line, sizeof(line), "本次得分 %d", (int)s_app.battle.score);
+            make_center(card, 0, 40, 212, line, &app_font_20, COL_GOLD);
+            snprintf(line, sizeof(line), "打到第 %u 战 · 最高 %u",
+                     (unsigned)s_app.wave, (unsigned)s_app.endless_best);
+            make_center(card, 0, 70, 212, line, &app_font_12, COL_TEXT);
+            make_center(card, 0, 86, 212, "继续挑战更高分", &app_font_12, COL_DIM);
         } else {
-            char stars[16];
-            stars_string(stars, sizeof(stars), s_app.battle.stars);
-            make_center(card, 0, 40, 212, stars, &app_font_20, COL_GOLD);
+            if (s_app.mode == MODE_GAUNTLET) {
+                make_center(card, 0, 40, 212, "★ ★ ★ 三连胜", &app_font_20,
+                            COL_GOLD);
+            } else {
+                char stars[16];
+                stars_string(stars, sizeof(stars), s_app.battle.stars);
+                make_center(card, 0, 40, 212, stars, &app_font_20, COL_GOLD);
+            }
+            snprintf(line, sizeof(line), "本次得分 %d",
+                     (int)s_app.battle.score);
+            make_center(card, 0, 70, 212, line, &app_font_12, COL_TEXT);
+            if (s_app.mode == MODE_GAUNTLET) {
+                snprintf(line, sizeof(line), "最高记录 %u",
+                         (unsigned)s_app.gauntlet_best);
+            } else {
+                snprintf(line, sizeof(line), "本关最高 %u",
+                         (unsigned)s_app.best[s_app.battle.stage]);
+            }
+            make_center(card, 0, 86, 212, line, &app_font_12, COL_DIM);
         }
-        snprintf(line, sizeof(line), "本次得分 %d", (int)s_app.battle.score);
-        make_center(card, 0, 70, 212, line, &app_font_12, COL_TEXT);
-        if (s_app.mode == MODE_GAUNTLET) {
-            snprintf(line, sizeof(line), "最高记录 %u",
-                     (unsigned)s_app.gauntlet_best);
-        } else {
-            snprintf(line, sizeof(line), "本关最高 %u",
-                     (unsigned)s_app.best[s_app.battle.stage]);
-        }
-        make_center(card, 0, 86, 212, line, &app_font_12, COL_DIM);
     } else {
         make_center(card, 0, 40, 212, sub, &app_font_12, COL_DIM);
         if (s_app.overlay == OVERLAY_OVER && s_app.mode != MODE_CAMPAIGN) {
@@ -2228,20 +2382,30 @@ static void begin_battle(uint8_t stage, uint16_t carry_hp, int32_t carry_score)
     battle_start(&s_app.battle, stage, s_app.difficulty, s_app.hero,
                  (uint32_t)esp_timer_get_time() ^ 0x5EED1234u);
     battle_set_low_age(&s_app.battle, s_app.low_age);
+    battle_set_score_bonus(&s_app.battle,
+                           s_app.mode == MODE_ENDLESS ? s_app.run_bonus_pct : 0);
     if (carry_hp > 0 && carry_hp < s_app.battle.hero_hp) {
         s_app.battle.hero_hp = carry_hp;
     }
     s_app.battle.score = carry_score;
 
-    // Wrong answers come back as the 2nd and 5th question of the round.
+    // Wrong answers come back as the 2nd and 5th question of the round. Only
+    // questions at or below this stage's math tier are eligible.
     review_record_t picks[BATTLE_REVIEW_SLOTS];
+    const uint8_t tier = campaign_stage(stage)->math_stage;
     const uint8_t count =
-        review_store_collect(&s_app.review, stage, picks, BATTLE_REVIEW_SLOTS);
+        review_store_collect(&s_app.review, stage, tier, picks,
+                             BATTLE_REVIEW_SLOTS);
     math_question_t questions[BATTLE_REVIEW_SLOTS];
     for (uint8_t i = 0; i < count; i++) {
         questions[i] = picks[i].question;
     }
     battle_queue_review(&s_app.battle, questions, count);
+
+    // Hold the round on a short READY beat so the player can see the board
+    // before the question timer starts. OK skips it.
+    battle_pause(&s_app.battle);
+    s_app.ready_until_us = esp_timer_get_time() + (int64_t)READY_MS * 1000;
 
     s_app.page = PAGE_BATTLE;
     build_battle();
@@ -2250,10 +2414,10 @@ static void begin_battle(uint8_t stage, uint16_t carry_hp, int32_t carry_score)
     char intro[32];
     if (s_app.mode == MODE_ENDLESS) {
         snprintf(intro, sizeof(intro), "无尽挑战 · 第%d关", (int)stage + 1);
-        set_notice_ms(intro, 1400000LL);
+        set_notice_ms(intro, 2200000LL);
     } else if (s_app.mode == MODE_GAUNTLET) {
         snprintf(intro, sizeof(intro), "三连战 · 第%d战", (int)s_app.wave);
-        set_notice_ms(intro, 1400000LL);
+        set_notice_ms(intro, 2200000LL);
     }
 }
 
@@ -2268,6 +2432,8 @@ static void start_run(game_mode_t mode)
     s_app.wave = 1;
     s_app.run_hp = 0;
     s_app.run_score = 0;
+    s_app.run_bonus_pct = 0;
+    s_app.pending_stage = 0;
     if (mode == MODE_GAUNTLET) {
         start_battle(gauntlet_stage(1));
     } else {
@@ -2304,10 +2470,11 @@ static void handle_run_clear(void)
     if (s_app.mode == MODE_ENDLESS) {
         s_app.run_hp = battle->hero_hp;
         s_app.run_score = battle->score;
-        s_app.wave++;
-        const uint8_t next =
+        s_app.pending_stage =
             (uint8_t)((battle->stage + 1u) % CAMPAIGN_STAGE_COUNT);
-        begin_battle(next, s_app.run_hp, s_app.run_score);
+        // Endless hands the breather to the player: bank the score, or spend
+        // one more heart and keep the multiplier climbing.
+        show_overlay(OVERLAY_WAVE);
         return;
     }
 
@@ -2330,6 +2497,7 @@ static void handle_run_clear(void)
 static void end_battle_to_page(page_t page)
 {
     request_save();
+    s_app.ready_until_us = 0;
     s_app.page = page;
     if (page == PAGE_HOME) {
         build_home();
@@ -2360,6 +2528,13 @@ static void handle_battle_event(battle_event_t event)
         break;
     case BATTLE_EV_CORRECT:
         audio_player_play(SFX_CORRECT);
+        if (battle->current_review) {
+            const bool removed =
+                review_store_mastered(&s_app.review, &battle->question);
+            spawn_popup(removed ? "掌握!" : "记住", COL_OK,
+                        HERO_X - ARENA_X + 8, 22);
+            request_save();
+        }
         s_app.feedback_correct = battle->question.correct_index;
         s_app.feedback_wrong = 0xFF;
         break;
@@ -2394,6 +2569,11 @@ static void handle_battle_event(battle_event_t event)
     case BATTLE_EV_CRITICAL_MISS: {
         audio_player_play(SFX_SWING);
         s_app.hero_attack_missed = true;
+        // The marker and the window are still intact here, so tell the player
+        // which side of the target they pressed on.
+        const bool early = battle->crit_marker < battle->crit_center;
+        spawn_popup(early ? "快了!" : "慢了!", COL_GOLD,
+                    HERO_X - ARENA_X + 8, 22);
         const int damage = (int)s_app.monster_hp_seen - (int)battle->monster_hp;
         schedule_impact(IMPACT_HERO_MISS, damage);
         break;
@@ -2515,6 +2695,21 @@ static void handle_battle_event(battle_event_t event)
 static void tick_battle(void)
 {
     const int64_t now = esp_timer_get_time();
+    if (s_app.ready_until_us > 0) {
+        if (now < s_app.ready_until_us) {
+            // The round is paused, so the question clock stays frozen while
+            // the player reads the board.
+            s_app.last_tick_us = now;
+            refresh_battle_with_dt(0);
+            return;
+        }
+        s_app.ready_until_us = 0;
+        battle_resume(&s_app.battle);
+        s_app.last_tick_us = now;
+        refresh_battle();
+        return;
+    }
+
     uint32_t elapsed = (uint32_t)((now - s_app.last_tick_us) / 1000);
     s_app.last_tick_us = now;
     if (elapsed > 250) {
@@ -2581,6 +2776,29 @@ static void run_overlay_action(void)
         return;
     }
 
+    if (s_app.overlay == OVERLAY_WAVE) {
+        const uint8_t index = s_app.overlay_index;
+        destroy_overlay();
+        if (index == 0) {
+            s_app.wave++;
+            uint16_t hp = (uint16_t)(s_app.run_hp + 1u);
+            if (hp > s_app.battle.hero_hp_max) {
+                hp = s_app.battle.hero_hp_max;
+            }
+            s_app.run_hp = hp;
+            if (s_app.run_bonus_pct < 100) {
+                s_app.run_bonus_pct = (uint8_t)(s_app.run_bonus_pct + 10u);
+            }
+            begin_battle(s_app.pending_stage, s_app.run_hp, s_app.run_score);
+        } else {
+            record_run_best();
+            prepare_review_view();
+            show_overlay(OVERLAY_CLEAR);
+            audio_player_play(SFX_CONFIRM);
+        }
+        return;
+    }
+
     if (s_app.overlay == OVERLAY_PAUSE) {
         if (s_app.overlay_index == 0) {
             battle_resume(&s_app.battle);
@@ -2599,6 +2817,16 @@ static void run_overlay_action(void)
     }
 
     if (s_app.overlay == OVERLAY_CLEAR) {
+        if (s_app.mode == MODE_ENDLESS) {
+            destroy_overlay();
+            if (s_app.overlay_index == 0) {
+                start_run(MODE_ENDLESS);
+            } else {
+                end_battle_to_page(PAGE_HOME);
+                audio_player_play(SFX_CONFIRM);
+            }
+            return;
+        }
         if (s_app.mode == MODE_GAUNTLET) {
             destroy_overlay();
             if (s_app.overlay_index == 0) {
@@ -2678,6 +2906,11 @@ static void handle_home_key(bsp_btn_t btn, bsp_btn_ev_t event)
         return;
     }
     if (event == BSP_BTN_CLICK && btn == BSP_BTN_OK) {
+        if (s_app.mode != MODE_CAMPAIGN && !mode_unlocked(s_app.mode)) {
+            audio_player_play(SFX_WRONG);
+            refresh_home();
+            return;
+        }
         audio_player_play(SFX_CONFIRM);
         if (s_app.mode == MODE_CAMPAIGN) {
             s_app.stage = s_app.unlocked;
@@ -2722,6 +2955,17 @@ static void handle_stage_key(bsp_btn_t btn, bsp_btn_ev_t event)
 
 static void handle_battle_key(bsp_btn_t btn, bsp_btn_ev_t event)
 {
+    if (s_app.ready_until_us > 0) {
+        if (event == BSP_BTN_CLICK && btn == BSP_BTN_OK) {
+            s_app.ready_until_us = 0;
+            battle_resume(&s_app.battle);
+            s_app.last_tick_us = esp_timer_get_time();
+            audio_player_play(SFX_CONFIRM);
+            refresh_battle();
+        }
+        return;
+    }
+
     if (s_app.overlay != OVERLAY_NONE) {
         if (s_app.overlay == OVERLAY_REVIEW) {
             const uint8_t pages =

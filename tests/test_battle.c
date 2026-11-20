@@ -739,6 +739,25 @@ static void test_low_age_hides_guard_and_widens_crit(void)
     assert(low.crit_window_effective == 62);  // 40 -> 50 (fast) -> 62 (low age)
 }
 
+static void test_score_bonus(void)
+{
+    battle_t b;
+    battle_start(&b, 0, 1, 0, 4242);
+    battle_set_score_bonus(&b, 20);
+    assert(b.score_bonus_pct == 20);
+
+    const int32_t before = b.score;
+    answer_correct(&b);
+    const int32_t base =
+        100 + (int32_t)b.combo * 20 + b.question_remaining_ms / 100;
+    assert(b.score - before == base + base * 20 / 100);
+
+    // battle_start clears the bonus for the next round.
+    battle_t fresh;
+    battle_start(&fresh, 0, 1, 0, 4242);
+    assert(fresh.score_bonus_pct == 0);
+}
+
 static void test_pause_resume(void)
 {
     battle_t b;
@@ -804,6 +823,7 @@ int main(void)
     test_combo_pursuit_and_finisher();
     test_review_injection_and_bonus();
     test_low_age_hides_guard_and_widens_crit();
+    test_score_bonus();
     test_pause_resume();
     test_history_avoids_repeats();
     puts("test_battle: PASS");
