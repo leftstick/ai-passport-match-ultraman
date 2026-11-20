@@ -12,6 +12,7 @@ SPRITES_C = ROOT / "main" / "assets" / "sprites.c"
 SPRITES_H = ROOT / "main" / "assets" / "sprites.h"
 SFX_C = ROOT / "main" / "audio" / "sfx.c"
 SFX_EXTRA_C = ROOT / "main" / "audio" / "sfx_extra.c"
+MONSTER_CRIES_C = ROOT / "main" / "audio" / "monster_cries.c"
 SFX_H = ROOT / "main" / "audio" / "sfx.h"
 AUDIO_DOCS = [
     ROOT / "assets" / "audio" / "SOURCES.md",
@@ -84,8 +85,10 @@ def check_sfx(errors: list[str]) -> None:
     ids.remove("SFX_COUNT")
     text = SFX_C.read_text(encoding="utf-8")
     extra = SFX_EXTRA_C.read_text(encoding="utf-8") if SFX_EXTRA_C.is_file() else ""
+    cries = (MONSTER_CRIES_C.read_text(encoding="utf-8")
+             if MONSTER_CRIES_C.is_file() else "")
     total = 0
-    for source in (text, extra):
+    for source in (text, extra, cries):
         for match in re.finditer(r"static const int16_t clip_\w+\[\] = \{(.*?)\n\};",
                                  source, re.S):
             values = [v for v in re.findall(r"-?\d+", match.group(1))]
@@ -96,7 +99,7 @@ def check_sfx(errors: list[str]) -> None:
         errors.append(
             f"sfx: {total} samples exceed budget {PCM_BUDGET_SAMPLES}")
     for sfx_id in ids:
-        if f"[{sfx_id}]" not in text and sfx_id not in extra:
+        if f"[{sfx_id}]" not in text and sfx_id not in extra and sfx_id not in cries:
             errors.append(f"sfx: clip table is missing {sfx_id}")
     for doc in AUDIO_DOCS:
         if not doc.is_file():

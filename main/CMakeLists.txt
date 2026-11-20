@@ -9,6 +9,7 @@ idf_component_register(
          "core/review.c"
          "core/ultimate.c"
          "audio/audio_player.c"
+         "audio/monster_cries.c"
          "audio/sfx.c"
          "audio/sfx_extra.c"
          "assets/sprites.c"

@@ -91,7 +91,7 @@ build/FoloToy-AI-Passport-full.bin
 当前构建结果：
 
 ```text
-Build:        PASS   app 3,111,840 字节，分区剩余 63%
+Build:        PASS   app 3,248,080 字节，分区剩余 61%
 Host tests:   PASS   math_question / campaign / battle + 仓库主机测试
 Device tests: NOT RUN
 ```
@@ -136,8 +136,11 @@ components/  BSP（显示、按键、音频、电池等）
   - 每位英雄 8 个动作：idle / fight / fly / beam / charge / kick / guard / victory
   - 每只怪兽 5 个动作：idle / attack / roar / charge / hurt
 - **音效**：`python tools/build_sfx.py --source-dir <kenney-pack-root>`
-  - 16 个提示音，16 kHz 单声道 PCM，共 7.84 秒
+  - 20 个音效，16 kHz 单声道 PCM，共 12.09 秒
   - 来源与许可见 [`assets/audio/SOURCES.md`](assets/audio/SOURCES.md)
+- **怪兽惨叫**：`python tools/build_monster_cries.py`
+  - 用狮子、老虎、大象、犀牛等 CC0 录音分轨降调、调制、叠加合成
+  - 试听：`python tools/build_monster_cries.py --preview-dir .tmp/monster-cries`
 - **字体**：`SOURCE_HAN_SANS=<font.otf> tools/generate_app_fonts.sh`
   - 从 UI 字符串自动采集字形，生成 12 / 14 / 20 / 28 px 4bpp 子集
   - 字体为思源黑体（Source Han Sans SC），SIL Open Font License 1.1
@@ -157,5 +160,5 @@ components/  BSP（显示、按键、音频、电池等）
 
 - 代码：MIT License，基于 [FoloToy AI Passport](https://gitee.com/FoloToy/ai-passport) 的 BSP 与工程结构。
 - 英雄与怪兽原画：本仓库作者提供的原创像素素材；角色名称引用特摄作品设定，未使用官方剧照或音频。
-- 音效：Kenney 素材包，CC0 1.0，明细见 [`assets/audio/SOURCES.md`](assets/audio/SOURCES.md)。
+- 音效：Kenney 素材包与 Freesound 动物录音，CC0 1.0，明细见 [`assets/audio/SOURCES.md`](assets/audio/SOURCES.md)。
 - 字体：思源黑体（Source Han Sans SC），SIL Open Font License 1.1，见 [`assets/fonts/SourceHanSansSC-LICENSE.txt`](assets/fonts/SourceHanSansSC-LICENSE.txt)。

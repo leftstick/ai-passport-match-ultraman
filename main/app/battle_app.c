@@ -2514,6 +2514,25 @@ static void set_notice(const char *text)
     set_notice_ms(text, 1600000LL);
 }
 
+// Defeat cries follow the monster's build: heavy beasts bellow, flyers shriek,
+// mechanical shells grind, and the alien/fish types warble.
+static sfx_id_t monster_cry_id(uint8_t stage)
+{
+    switch (stage) {
+    case 1:  // 雷德王
+    case 4:  // 哥莫拉
+        return SFX_CRY_HEAVY;
+    case 3:  // 多拉考
+    case 7:  // 魔格大蛇
+        return SFX_CRY_WINGED;
+    case 5:  // 加拉特隆
+    case 6:  // 杰顿
+        return SFX_CRY_MECH;
+    default:  // 巴尔坦星人 / 雷伊洛斯
+        return SFX_CRY_ALIEN;
+    }
+}
+
 static void handle_battle_event(battle_event_t event)
 {
     battle_t *battle = &s_app.battle;
@@ -2626,6 +2645,7 @@ static void handle_battle_event(battle_event_t event)
     }
     case BATTLE_EV_MONSTER_DEFEATED:
         audio_player_play(SFX_MONSTER_DOWN);
+        audio_player_play(monster_cry_id(battle->stage));
         s_app.monster_hp_goal = battle->monster_hp;
         s_app.arena_flash_until_us = now + 180000;
         set_notice("怪兽被击败!");
@@ -2665,6 +2685,7 @@ static void handle_battle_event(battle_event_t event)
         break;
     case BATTLE_EV_BEAM_WIN:
         audio_player_play(SFX_MONSTER_DOWN);
+        audio_player_play(monster_cry_id(battle->stage));
         s_app.monster_hp_goal = battle->monster_hp;
         s_app.arena_flash_until_us = now + 220000;
         set_notice("光线压制成功!");

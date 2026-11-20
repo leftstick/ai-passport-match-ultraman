@@ -22,6 +22,11 @@ typedef enum {
     // Procedurally synthesised cues live in sfx_extra.c.
     SFX_SWING,
     SFX_GROWL,
+    // Monster defeat cries built from CC0 animal recordings in monster_cries.c.
+    SFX_CRY_HEAVY,
+    SFX_CRY_WINGED,
+    SFX_CRY_MECH,
+    SFX_CRY_ALIEN,
     SFX_COUNT,
 } sfx_id_t;
 

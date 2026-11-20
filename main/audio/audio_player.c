@@ -7,6 +7,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "monster_cries.h"
 #include "sfx_extra.h"
 
 static const char *TAG = "audio";
@@ -38,6 +39,10 @@ static bool is_priority(sfx_id_t id)
 
 static const sfx_clip_t *resolve_clip(sfx_id_t id)
 {
+    const sfx_clip_t *cry = monster_cry_clip(id);
+    if (cry != NULL && cry->count > 0) {
+        return cry;
+    }
     const sfx_clip_t *extra = sfx_extra_clip(id);
     if (extra != NULL && extra->count > 0) {
         return extra;
