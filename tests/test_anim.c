@@ -105,12 +105,14 @@ static void test_variant_attacks_share_impact_frame(void)
     // Variants change the silhouette, never the moment damage lands.
     assert(anim_impact_ms(ANIM_HERO_ATTACK_PUNCH, HERO_ATTACK_MS) == 229u);
     assert(anim_impact_ms(ANIM_HERO_ATTACK_HEAVY, HERO_ATTACK_MS) == 229u);
+    assert(anim_impact_ms(ANIM_HERO_ATTACK_ARC, HERO_ATTACK_MS) == 229u);
     assert(anim_impact_ms(ANIM_ENEMY_ATTACK_CHARGE, ENEMY_ATTACK_MS) == 361u);
 
     const anim_frame_t punch =
         anim_sample(ANIM_HERO_ATTACK_PUNCH, 229, HERO_ATTACK_MS);
     assert(punch.hero_pose == ANIM_POSE_FLY);
-    assert(punch.hero_dx == 68);
+    assert(punch.hero_dx == 72);
+    assert(punch.hero_dy == -6);
     assert(punch.monster_pose == ANIM_MONSTER_HURT);
     assert(punch.monster_dx == 8);
     assert(punch.monster_flash == 100);
@@ -128,6 +130,14 @@ static void test_variant_attacks_share_impact_frame(void)
     assert(heavy.monster_dx == 12);
     assert(heavy.monster_flash == 100);
 
+    const anim_frame_t arc =
+        anim_sample(ANIM_HERO_ATTACK_ARC, 229, HERO_ATTACK_MS);
+    assert(arc.hero_pose == ANIM_POSE_KICK);
+    assert(arc.hero_dx == 58);
+    assert(arc.hero_dy == -16);
+    assert(arc.monster_pose == ANIM_MONSTER_HURT);
+    assert(arc.monster_dx == 10);
+
     const anim_frame_t roar =
         anim_sample(ANIM_ENEMY_ATTACK_CHARGE, 200, ENEMY_ATTACK_MS);
     assert(roar.monster_pose == ANIM_MONSTER_CHARGE);
@@ -141,6 +151,36 @@ static void test_variant_attacks_share_impact_frame(void)
     assert(maul.hero_dx == -8);
     assert(maul.hero_flash == 100);
     assert(maul.shake == 5);
+}
+
+static void test_hero_strikes_rotate_every_hit(void)
+{
+    // Regression: perfect criticals used to force one fixed action, so a
+    // player who always hit the centre saw nine identical strikes.
+    const anim_id_t first = anim_hero_strike(0, false, false);
+    bool seen[ANIM_COUNT] = {false};
+    for (uint8_t i = 0; i < 9; i++) {
+        const anim_id_t id = anim_hero_strike(i, false, false);
+        seen[id] = true;
+        if (i > 0) {
+            assert(id != anim_hero_strike((uint8_t)(i - 1), false, false));
+        }
+    }
+    assert(seen[ANIM_HERO_ATTACK]);
+    assert(seen[ANIM_HERO_ATTACK_PUNCH]);
+    assert(seen[ANIM_HERO_ATTACK_HEAVY]);
+    assert(seen[ANIM_HERO_ATTACK_ARC]);
+
+    // The sequence wraps, so long runs keep cycling instead of sticking.
+    assert(anim_hero_strike(4, false, false) == first);
+
+    // Combo rewards keep their dedicated moves.
+    assert(anim_hero_strike(5, true, false) == ANIM_COMBO_FINISH);
+    assert(anim_hero_strike(5, false, true) == ANIM_HERO_PURSUIT);
+    assert(anim_hero_strike(5, true, true) == ANIM_COMBO_FINISH);
+
+    assert(anim_enemy_strike(0) != anim_enemy_strike(1));
+    assert(anim_enemy_strike(0) == anim_enemy_strike(2));
 }
 
 static void test_beam_and_terminal_actions(void)
@@ -207,6 +247,7 @@ int main(void)
     test_enemy_attack_only_hurts_hero_on_impact();
     test_ultimate_charges_then_fires();
     test_variant_attacks_share_impact_frame();
+    test_hero_strikes_rotate_every_hit();
     test_beam_and_terminal_actions();
     test_elapsed_is_clamped();
     test_sample_stays_in_range();

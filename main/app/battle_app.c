@@ -231,6 +231,8 @@ static struct {
     uint8_t wave;
     uint8_t pending_stage;
     uint8_t run_bonus_pct;
+    uint8_t strike_seq;
+    anim_id_t strike_anim;
     uint16_t run_hp;
     int32_t run_score;
     uint32_t endless_best;
@@ -1575,38 +1577,31 @@ static void update_panel(uint32_t dt_ms)
                    ACTION_Y + s_app.action_offset);
 }
 
-// Pick the strike that matches the current combo state. Every ordinary hit
-// alternates between a flying kick and a flying punch, and the starting move
-// differs per hero, so repeated answers do not replay one animation. Perfect
-// timing upgrades the strike to a charged heavy kick; combo rewards keep their
-// dedicated pursuit and finisher moves.
-static anim_id_t hero_attack_anim(const battle_t *battle)
+// Advance the presentation-only strike rotation. Every answered strike takes
+// the next silhouette, independent of critical quality, so hitting the perfect
+// zone on every question still produces different actions. Combo rewards keep
+// their dedicated moves.
+static anim_id_t take_hero_strike(const battle_t *battle)
 {
-    if (battle->combo_finisher) {
-        return ANIM_COMBO_FINISH;
+    if (battle->combo_finisher || battle->crit_pursuit) {
+        // Special moves do not consume a rotation slot.
+        return anim_hero_strike(0, battle->combo_finisher, battle->crit_pursuit);
     }
-    if (battle->crit_pursuit) {
-        return ANIM_HERO_PURSUIT;
-    }
-    if (battle->crit_perfect) {
-        return ANIM_HERO_ATTACK_HEAVY;
-    }
-    return ((battle->correct_count + battle->hero) & 1u) != 0
-               ? ANIM_HERO_ATTACK_PUNCH
-               : ANIM_HERO_ATTACK;
+    const anim_id_t id = anim_hero_strike(s_app.strike_seq, false, false);
+    s_app.strike_seq++;
+    return id;
 }
 
 // Enemy attacks also alternate: a direct roar-pounce or a charge-up pounce.
 static anim_id_t enemy_attack_anim(const battle_t *battle)
 {
-    return ((battle->wrong_count + battle->stage) & 1u) != 0
-               ? ANIM_ENEMY_ATTACK_CHARGE
-               : ANIM_ENEMY_ATTACK;
+    return anim_enemy_strike(
+        (uint8_t)(battle->wrong_count + battle->stage));
 }
 
 static void schedule_impact(impact_kind_t kind, int damage)
 {
-    anim_id_t id = hero_attack_anim(&s_app.battle);
+    anim_id_t id = s_app.strike_anim;
     uint32_t duration = BATTLE_ATTACK_MS;
     uint32_t delay_ms = 0;
 
@@ -1708,7 +1703,7 @@ static void refresh_battle_animation(void)
 
     switch (battle->phase) {
     case BATTLE_PHASE_ATTACK:
-        id = hero_attack_anim(battle);
+        id = s_app.strike_anim;
         duration = BATTLE_ATTACK_MS;
         elapsed = (uint32_t)(BATTLE_ATTACK_MS - battle->phase_ms);
         break;
@@ -2379,6 +2374,7 @@ static void begin_battle(uint8_t stage, uint16_t carry_hp, int32_t carry_score)
         stage = 0;
     }
     s_app.stage = stage;
+    s_app.strike_anim = ANIM_HERO_ATTACK;
     battle_start(&s_app.battle, stage, s_app.difficulty, s_app.hero,
                  (uint32_t)esp_timer_get_time() ^ 0x5EED1234u);
     battle_set_low_age(&s_app.battle, s_app.low_age);
@@ -2434,6 +2430,7 @@ static void start_run(game_mode_t mode)
     s_app.run_score = 0;
     s_app.run_bonus_pct = 0;
     s_app.pending_stage = 0;
+    s_app.strike_seq = 0;
     if (mode == MODE_GAUNTLET) {
         start_battle(gauntlet_stage(1));
     } else {
@@ -2554,6 +2551,7 @@ static void handle_battle_event(battle_event_t event)
         audio_player_play(SFX_SWING);
         audio_player_play(SFX_CRITICAL);
         s_app.hero_attack_missed = false;
+        s_app.strike_anim = take_hero_strike(battle);
         const int damage = (int)s_app.monster_hp_seen - (int)battle->monster_hp;
         impact_kind_t kind = IMPACT_HERO_HIT;
         if (battle->combo_finisher) {
@@ -2569,6 +2567,7 @@ static void handle_battle_event(battle_event_t event)
     case BATTLE_EV_CRITICAL_MISS: {
         audio_player_play(SFX_SWING);
         s_app.hero_attack_missed = true;
+        s_app.strike_anim = take_hero_strike(battle);
         // The marker and the window are still intact here, so tell the player
         // which side of the target they pressed on.
         const bool early = battle->crit_marker < battle->crit_center;

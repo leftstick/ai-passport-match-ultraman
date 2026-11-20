@@ -26,6 +26,7 @@ typedef enum {
     // Ordinary-strike variants so one hero does not repeat a single action.
     ANIM_HERO_ATTACK_PUNCH,
     ANIM_HERO_ATTACK_HEAVY,
+    ANIM_HERO_ATTACK_ARC,
     ANIM_ENEMY_ATTACK_CHARGE,
     ANIM_COUNT,
 } anim_id_t;
@@ -73,6 +74,14 @@ anim_frame_t anim_sample(anim_id_t id, uint32_t elapsed_ms, uint32_t duration_ms
 // Time inside the phase at which the hit lands. Returns 0 for actions without
 // a hit frame.
 uint32_t anim_impact_ms(anim_id_t id, uint32_t duration_ms);
+
+// Pick the next ordinary hero strike. `sequence` advances on every strike so
+// the four silhouettes rotate even when the player hits the perfect zone every
+// time. Combo rewards keep their dedicated moves and take priority.
+anim_id_t anim_hero_strike(uint8_t sequence, bool finisher, bool pursuit);
+
+// Enemy pounces alternate between a direct roar and a charge-up.
+anim_id_t anim_enemy_strike(uint8_t sequence);
 
 // Slow two-step breathing value in 0..2. Callers pass a phase offset so the
 // hero and monster do not bob in lockstep.

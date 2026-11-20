@@ -37,17 +37,17 @@ static const anim_key_t HERO_ATTACK_KEYS[] = {
     {1000, 0, 0, 0, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
 };
 
-// Alternate ordinary strike: the same windup, but the hero lands a flying
-// punch instead of a kick. The impact frame stays at 440/1000 so damage pops
-// at the same moment as the contact frame.
+// Flying punch: a quick hop with a vertical offset, so the silhouette differs
+// from the flat flying kick even before the impact pose. The impact frame
+// stays at 440/1000 so damage pops on contact.
 static const anim_key_t HERO_ATTACK_PUNCH_KEYS[] = {
     {0, 0, 0, 0, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
-    {150, -7, 0, 0, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
-    {240, 0, 0, 0, 0, ANIM_POSE_FLY, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
-    {439, 68, 0, 8, 0, ANIM_POSE_FLY, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
-    {440, 68, 0, 8, 0, ANIM_POSE_FLY, ANIM_MONSTER_HURT, 0, 100, 0, 5},
-    {555, 68, 0, 8, 0, ANIM_POSE_FLY, ANIM_MONSTER_HURT, 0, 60, 0, 3},
-    {750, 18, 0, 2, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+    {90, -4, -4, 0, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+    {170, 0, 0, 0, 0, ANIM_POSE_FLY, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+    {439, 72, -6, 8, 0, ANIM_POSE_FLY, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+    {440, 72, -6, 8, 0, ANIM_POSE_FLY, ANIM_MONSTER_HURT, 0, 100, 0, 5},
+    {560, 72, -6, 8, 0, ANIM_POSE_FLY, ANIM_MONSTER_HURT, 0, 60, 0, 3},
+    {760, 16, 0, 2, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
     {1000, 0, 0, 0, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
 };
 
@@ -64,6 +64,20 @@ static const anim_key_t HERO_ATTACK_HEAVY_KEYS[] = {
     {440, 78, 0, 12, 0, ANIM_POSE_KICK, ANIM_MONSTER_HURT, 0, 100, 0, 5},
     {590, 78, 0, 12, 0, ANIM_POSE_KICK, ANIM_MONSTER_HURT, 0, 80, 0, 4},
     {800, 24, 0, 4, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_HURT, 0, 30, 0, 2},
+    {1000, 0, 0, 0, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+};
+
+// Rising arc kick: the hero leaps higher than the punch, then lands a kick
+// from above. The larger vertical travel makes it a third recognisable beat.
+static const anim_key_t HERO_ATTACK_ARC_KEYS[] = {
+    {0, 0, 0, 0, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+    {120, -10, 0, 0, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+    {200, 0, 0, 0, 0, ANIM_POSE_FLY, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+    {320, 20, -8, 0, 0, ANIM_POSE_FLY, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+    {439, 58, -16, 10, 0, ANIM_POSE_FLY, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
+    {440, 58, -16, 10, 0, ANIM_POSE_KICK, ANIM_MONSTER_HURT, 0, 100, 0, 5},
+    {570, 58, -16, 10, 0, ANIM_POSE_KICK, ANIM_MONSTER_HURT, 0, 80, 0, 4},
+    {780, 20, -4, 3, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_HURT, 0, 20, 0, 1},
     {1000, 0, 0, 0, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
 };
 
@@ -204,6 +218,8 @@ static const anim_def_t DEFS[ANIM_COUNT] = {
                                 (uint8_t)KEY_COUNT(HERO_ATTACK_PUNCH_KEYS), 440},
     [ANIM_HERO_ATTACK_HEAVY] = {HERO_ATTACK_HEAVY_KEYS,
                                 (uint8_t)KEY_COUNT(HERO_ATTACK_HEAVY_KEYS), 440},
+    [ANIM_HERO_ATTACK_ARC] = {HERO_ATTACK_ARC_KEYS,
+                              (uint8_t)KEY_COUNT(HERO_ATTACK_ARC_KEYS), 440},
     [ANIM_ENEMY_ATTACK_CHARGE] = {ENEMY_ATTACK_CHARGE_KEYS,
                                   (uint8_t)KEY_COUNT(ENEMY_ATTACK_CHARGE_KEYS),
                                   475},
@@ -311,6 +327,29 @@ uint32_t anim_impact_ms(anim_id_t id, uint32_t duration_ms)
     // Round up so the sampled frame at this timestamp has already reached the
     // impact keyframe.
     return (uint32_t)(((uint64_t)duration_ms * def->impact_permille + 999u) / 1000u);
+}
+
+anim_id_t anim_hero_strike(uint8_t sequence, bool finisher, bool pursuit)
+{
+    if (finisher) {
+        return ANIM_COMBO_FINISH;
+    }
+    if (pursuit) {
+        return ANIM_HERO_PURSUIT;
+    }
+    static const anim_id_t ROTATION[] = {
+        ANIM_HERO_ATTACK,
+        ANIM_HERO_ATTACK_PUNCH,
+        ANIM_HERO_ATTACK_HEAVY,
+        ANIM_HERO_ATTACK_ARC,
+    };
+    const uint8_t count = (uint8_t)(sizeof(ROTATION) / sizeof(ROTATION[0]));
+    return ROTATION[sequence % count];
+}
+
+anim_id_t anim_enemy_strike(uint8_t sequence)
+{
+    return (sequence & 1u) != 0 ? ANIM_ENEMY_ATTACK_CHARGE : ANIM_ENEMY_ATTACK;
 }
 
 int anim_breathe(uint32_t time_ms, uint32_t phase_ms, uint32_t period_ms)
