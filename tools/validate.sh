@@ -118,35 +118,30 @@ run_static_checks() {
 }
 
 run_firmware_checks() (
-    local validation_build_dir
+    local build_dir="${repo_root}/build"
+    local gate_sdkconfig="${build_dir}/sdkconfig.gate"
 
     if ! command -v idf.py >/dev/null 2>&1; then
         echo "ERROR: idf.py is not available; activate ESP-IDF 5.5.3 first." >&2
         return 1
     fi
 
-    validation_build_dir="$(mktemp -d /tmp/ai-passport-firmware.XXXXXX)"
-    trap 'case "${validation_build_dir}" in /tmp/ai-passport-firmware.*) rm -rf -- "${validation_build_dir}" ;; esac' EXIT
-
+    mkdir -p "${build_dir}"
+    # Regenerate the gate configuration from the tracked defaults so a stale
+    # local config cannot silently change the delivered firmware.
+    rm -f "${gate_sdkconfig}"
     SDKCONFIG_DEFAULTS="${repo_root}/sdkconfig.defaults" \
-        idf.py -B "${validation_build_dir}" \
-        -D "SDKCONFIG=${validation_build_dir}/sdkconfig" build
-    idf.py -B "${validation_build_dir}" merge-bin \
-        -o "${validation_build_dir}/FoloToy-AI-Passport-full.bin"
-    python3 tools/verify_firmware.py "${validation_build_dir}"
+        idf.py -B "${build_dir}" -D "SDKCONFIG=${gate_sdkconfig}" build
+    idf.py -B "${build_dir}" merge-bin \
+        -o "${build_dir}/FoloToy-AI-Passport-full.bin"
+    python3 tools/verify_firmware.py "${build_dir}"
     # Content-addressed archives are opt-in so a normal gate does not create a
     # new directory on every build.
     if [[ "${PASSPORT_FIRMWARE_ARCHIVE:-0}" == "1" ]]; then
         PYTHONDONTWRITEBYTECODE=1 python3 tools/archive_firmware.py create \
-            "${validation_build_dir}" --archive-root "${repo_root}/build/firmware"
+            "${build_dir}" --archive-root "${build_dir}/firmware"
     fi
-    # The gate always overwrites one known image so the build result is easy to
-    # find.
-    mkdir -p "${repo_root}/build"
-    install -m 0644 \
-        "${validation_build_dir}/FoloToy-AI-Passport-full.bin" \
-        "${repo_root}/build/FoloToy-AI-Passport-full.bin"
-    echo "Firmware image: ${repo_root}/build/FoloToy-AI-Passport-full.bin"
+    echo "Firmware image: ${build_dir}/FoloToy-AI-Passport-full.bin"
     echo "Firmware build: PASS"
 )
 

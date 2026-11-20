@@ -63,10 +63,10 @@ ccache --show-stats
 ```
 
 实际 `cache_dir` 取决于 ccache 版本、平台、配置以及 `CCACHE_DIR`，并不总是
-`~/.ccache`。把它放在 `build/` 和临时验证目录之外，清理这些目录时才能保留
-缓存。清缓存不是日常构建步骤。只有明确需要清空当前缓存时，才使用保留
-配置文件的 `ccache --clear`，而不是删除整个目录；这也会清除共用该缓存的
-其他项目的编译结果。参见 [ccache 手册](https://ccache.dev/manual/latest.html)。
+`~/.ccache`。把它放在 `build/` 之外，清理构建目录时才能保留缓存。清缓存
+不是日常构建步骤。只有明确需要清空当前缓存时，才使用保留配置文件的
+`ccache --clear`，而不是删除整个目录；这也会清除共用该缓存的其他项目的
+编译结果。参见 [ccache 手册](https://ccache.dev/manual/latest.html)。
 
 Windows 上的杀毒或终端安全软件实时扫描可能拖慢构建，但应先诊断瓶颈。
 Microsoft Defender 可使用其
@@ -78,7 +78,14 @@ Microsoft Defender 可使用其
 
 仓库提交 `dependencies.lock` 以固定 ESP-IDF Managed Components 的解析结果。修改 `idf_component.yml` 后必须使用 ESP-IDF 5.5.3 重新生成锁文件、review 版本变化并与 manifest 一起提交；普通构建不应产生未提交的锁文件差异。
 
-固件门禁使用全新的临时构建目录，并从仓库 `sdkconfig.defaults` 生成隔离的 `sdkconfig`。它不会读取或覆盖开发者根目录的 `sdkconfig`。清理临时构建前，把已验证合并镜像复制到 `build/FoloToy-AI-Passport-full.bin`，覆盖上一版；门禁默认不创建按次生成的归档目录。门禁同时验证[当前配置的固件布局](firmware-layout.zh_CN.md)：从 `flash_args` 读取镜像偏移，检查分区表 MD5、边界和不重叠，并确认应用从所配置的 app 分区起点开始且未超出分区。允许用户自定义分区布局。
+固件门禁在仓库 `build/` 目录中构建，并从仓库 `sdkconfig.defaults` 重新生成
+隔离的 `build/sdkconfig.gate`。它不会读取或覆盖开发者根目录的 `sdkconfig`。
+构建会覆盖上一版产物和已验证合并镜像
+`build/FoloToy-AI-Passport-full.bin`，因此 `idf.py -B build flash` 使用的就是
+本次构建；门禁默认不创建按次生成的归档目录。门禁同时验证
+[当前配置的固件布局](firmware-layout.zh_CN.md)：从 `flash_args` 读取镜像偏移，
+检查分区表 MD5、边界和不重叠，并确认应用从所配置的 app 分区起点开始且未超出
+分区。允许用户自定义分区布局。
 
 ### 保留匹配的崩溃调试产物
 

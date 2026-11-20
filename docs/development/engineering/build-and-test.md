@@ -70,7 +70,7 @@ ccache --show-stats
 
 The effective `cache_dir` depends on the ccache version, platform,
 configuration, and `CCACHE_DIR`; it is not always `~/.ccache`. Keep it outside
-`build/` and temporary validation directories so their removal preserves it.
+`build/` so cleaning the build directory preserves it.
 Cache clearing is not a routine build step. Only when intentionally clearing
 the active cache, use `ccache --clear`, which preserves the configuration file,
 instead of deleting the directory. This also discards cached compiler results
@@ -87,7 +87,7 @@ or project, and do not disable real-time protection.
 
 The tracked `dependencies.lock` pins Managed Component resolution. After changing an `idf_component.yml`, regenerate the lock with ESP-IDF 5.5.3, review version changes, and commit it with the manifest. An ordinary build must not leave an unexplained lock-file diff.
 
-Firmware validation uses a fresh temporary build directory and an isolated `sdkconfig` generated from the tracked defaults. It does not consume or overwrite a developer's root `sdkconfig`. Before cleaning the temporary build, it copies the verified merged image to `build/FoloToy-AI-Passport-full.bin`, overwriting the previous image; the gate does not create a per-build archive directory. The gate also validates the [configured firmware layout](firmware-layout.md): image offsets from `flash_args`, partition-table MD5, bounds and non-overlap, and an application that starts in and fits its configured app partition. User-defined partition layouts are allowed.
+Firmware validation builds in the repository `build/` directory and regenerates `build/sdkconfig.gate` from the tracked defaults, so it does not consume or overwrite a developer's root `sdkconfig`. It overwrites the previous build artifacts and the verified merged image at `build/FoloToy-AI-Passport-full.bin`, so `idf.py -B build flash` uses the same build. The gate does not create a per-build archive directory. The gate also validates the [configured firmware layout](firmware-layout.md): image offsets from `flash_args`, partition-table MD5, bounds and non-overlap, and an application that starts in and fits its configured app partition. User-defined partition layouts are allowed.
 
 ### Retain matching crash-debugging artifacts
 

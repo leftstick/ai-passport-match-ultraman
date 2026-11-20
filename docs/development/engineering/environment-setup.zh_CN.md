@@ -370,7 +370,8 @@ grep -E 'CONFIG_IDF_TARGET|CONFIG_ESPTOOLPY_FLASHSIZE|CONFIG_ESP_CONSOLE_USB_SER
 
 静态门禁需要 Python 3、C 编译器、`curl`、`tar` 和 SHA-256 工具；未安装
 `actionlint` 时，会把带固定校验和的版本下载到 `/tmp`。固件门禁是默认优先的
-编译方式，它使用隔离的临时构建，并生成经过验证的 `0x0` 镜像：
+编译方式，它在仓库 `build/` 目录中构建并覆盖上一版产物，生成经过验证的
+`0x0` 镜像：
 
 ```text
 build/FoloToy-AI-Passport-full.bin
