@@ -21,6 +21,8 @@ static const ult_def_t DEFS[CAMPAIGN_HERO_COUNT] = {
     {3, 760, 0, 126, 324, 1, 1},   // emerald: wide, forgiving beats
     {1, 800, 0, 90, 220, 4, 5},    // gold: one charged strike
     {4, 520, 1, 70, 170, 1, 1},    // violet: alternating up/down
+    {3, 340, 0, 45, 110, 2, 3},    // dark: three lightning beats, heavy damage
+    {2, 720, 0, 110, 280, 3, 4},   // royal: two slow, guard-breaking beats
 };
 
 static const ult_def_t *def_for(uint8_t hero)

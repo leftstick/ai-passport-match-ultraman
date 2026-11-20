@@ -19,9 +19,18 @@ AUDIO_DOCS = [
     ROOT / "assets" / "audio" / "CC0-1.0.txt",
 ]
 
-HERO_SPRITES = 5 * 8
+CAMPAIGN_H = ROOT / "main" / "core" / "campaign.h"
+
+
+def _hero_count() -> int:
+    match = re.search(r"#define CAMPAIGN_HERO_COUNT (\d+)",
+                      CAMPAIGN_H.read_text(encoding="utf-8"))
+    return int(match.group(1)) if match else 0
+
+
+HERO_SPRITES = _hero_count() * 8
 MONSTER_SPRITES = 8 * 5
-HERO_PREFIXES = ("blue_", "red_", "emerald_", "gold_", "violet_")
+HERO_PREFIXES = ("blue_", "red_", "emerald_", "gold_", "violet_", "dark_", "royal_")
 PCM_BUDGET_SAMPLES = 200_000
 
 
@@ -50,7 +59,7 @@ def check_sprites(errors: list[str]) -> None:
             errors.append(f"sprites.c: {name} is {w}x{h}, expected {expected[0]}x{expected[1]}")
     header = SPRITES_H.read_text(encoding="utf-8")
     for symbol in (
-        "HERO_SPRITES[5][8]",
+        f"HERO_SPRITES[{_hero_count()}][8]",
         "MONSTER_SPRITES[8][5]",
         "SPRITE_POSE_VICTORY",
         "SPRITE_MONSTER_HURT",

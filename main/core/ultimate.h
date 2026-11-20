@@ -6,6 +6,8 @@
 //   emerald three slow beats with a much wider timing window
 //   gold    one heavy beat, the biggest single hit in the game
 //   violet  four beats alternating up/down, shield refresh on a clean run
+//   dark    three lightning-fast beats with heavy per-beat damage
+//   royal   two slow, wide-window beats that hit the hardest
 #pragma once
 
 #include <stdbool.h>

@@ -13,6 +13,10 @@ static const hero_def_t HEROES[CAMPAIGN_HERO_COUNT] = {
       .accent_color = 0xFFC53D, .perk = HERO_PERK_CRIT_ZONE },
     { .name = "迪迦奥特曼", .perk_text = "每关首次受伤免疫", .sprite_prefix = "violet",
       .accent_color = 0xB07CFF, .perk = HERO_PERK_SHIELD },
+    { .name = "欧布奥特曼·暗耀", .perk_text = "暴击伤害 +1", .sprite_prefix = "dark",
+      .accent_color = 0xFF3B6B, .perk = HERO_PERK_CRIT_DAMAGE },
+    { .name = "捷德奥特曼·尊皇", .perk_text = "每关首次受伤免疫", .sprite_prefix = "royal",
+      .accent_color = 0x5F8CFF, .perk = HERO_PERK_SHIELD },
 };
 
 static const stage_def_t STAGES[CAMPAIGN_STAGE_COUNT] = {

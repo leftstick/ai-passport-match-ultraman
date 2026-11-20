@@ -11,6 +11,8 @@ static void test_layout(void)
     assert(ultimate_total_ms(2) == 3 * 760 + ULT_TAIL_MS);
     assert(ultimate_total_ms(3) == 1 * 800 + ULT_TAIL_MS);
     assert(ultimate_total_ms(4) == 4 * 520 + ULT_TAIL_MS);
+    assert(ultimate_total_ms(5) == 3 * 340 + ULT_TAIL_MS);
+    assert(ultimate_total_ms(6) == 2 * 720 + ULT_TAIL_MS);
     // Out-of-range heroes fall back to blue.
     assert(ultimate_total_ms(99) == ultimate_total_ms(0));
 }
@@ -97,6 +99,36 @@ static void test_violet_alternation_and_clean_run(void)
     assert(u.perfects == 4);
 }
 
+static void test_dark_and_royal_patterns(void)
+{
+    ultimate_t u;
+    // Dark: three lightning beats with heavy per-beat damage.
+    ultimate_start(&u, 5);
+    assert(u.steps == 3);
+    assert(ultimate_step_ms(&u) == 340);
+    assert(ultimate_step_damage(5, false) == 2);
+    assert(ultimate_step_damage(5, true) == 3);
+    for (int i = 0; i < 3; i++) {
+        assert(ultimate_tick(&u, 187) == ULT_JUDGE_NONE);
+        assert(ultimate_press(&u, ULT_INPUT_OK) == ULT_JUDGE_PERFECT);
+    }
+    assert(ultimate_all_hit(&u));
+    assert(u.perfects == 3);
+
+    // Royal: two slow, wide-window beats that hit the hardest.
+    ultimate_start(&u, 6);
+    assert(u.steps == 2);
+    assert(ultimate_step_ms(&u) == 720);
+    assert(ultimate_step_damage(6, false) == 3);
+    assert(ultimate_step_damage(6, true) == 4);
+    for (int i = 0; i < 2; i++) {
+        assert(ultimate_tick(&u, 396) == ULT_JUDGE_NONE);
+        assert(ultimate_press(&u, ULT_INPUT_OK) == ULT_JUDGE_PERFECT);
+    }
+    assert(ultimate_all_hit(&u));
+    assert(u.perfects == 2);
+}
+
 static void test_timeout_crosses_multiple_beats(void)
 {
     ultimate_t u;
@@ -120,6 +152,7 @@ int main(void)
     test_early_and_late_presses_miss();
     test_windows();
     test_violet_alternation_and_clean_run();
+    test_dark_and_royal_patterns();
     test_timeout_crosses_multiple_beats();
     puts("test_ultimate: PASS");
     return 0;

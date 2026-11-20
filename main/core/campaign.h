@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define CAMPAIGN_HERO_COUNT 5
+#define CAMPAIGN_HERO_COUNT 7
 #define CAMPAIGN_STAGE_COUNT 8
 #define CAMPAIGN_DIFFICULTY_COUNT 3
 

@@ -66,8 +66,10 @@ SourceHanSansSC-Regular 生成。16 MB 的源 OTF 不提交。
 或 80 × 80（怪兽），并生成 RGB565A8 数组写入 `main/assets/sprites.c`。每个
 英雄有 8 种动作（idle、fight、fly、beam、charge、kick、guard、victory），
 每个怪兽有 5 种动作（idle、attack、roar、charge、hurt）；战斗界面会根据当前
-阶段或反馈事件切换对应姿势，而不是始终显示同一张图。80 个描述符共
-1,528,320 字节负载。固件链接的是这些生成表，不要手工修改。
+阶段或反馈事件切换对应姿势，而不是始终显示同一张图。96 个描述符共
+1,832,448 字节负载。固件链接的是这些生成表，不要手工修改。
+`tools/prepare_hero_sources.py` 负责从洋红背景原图重建 512 × 512 透明 PNG，
+并压缩 `raw/` 下体积过大的 JPEG。
 
 ## 音乐与音效（music）
 

@@ -8,7 +8,7 @@
 - 存档：NVS `battle_v1`，保存解锁进度、星级、最高分、英雄、难度和静音状态
 
 <p align="center">
-  <img src="assets/pixel-heroes/preview-heroes.png" width="62%" alt="五位英雄的八种动作" />
+  <img src="assets/pixel-heroes/preview-heroes.png" width="62%" alt="七位英雄的八种动作" />
   <img src="assets/pixel-heroes/preview-monsters.png" width="30%" alt="八只怪兽的五种动作" />
 </p>
 
@@ -27,7 +27,7 @@
 | 赤甲虫王 | 杰顿 | 混合两步 · 100 以内加减 | 5.6 s | 7 |
 | 终焉飞龙 | 魔格大蛇 | 混合两步 · 乘除 · 填空 | 5.2 s | 8（Boss） |
 
-### 五位英雄
+### 七位英雄
 
 | 英雄 | 被动 |
 | --- | --- |
@@ -36,6 +36,8 @@
 | 高斯奥特曼 | 每题答题时间 +0.8 秒 |
 | 奥特之王 | 暴击判定区 +30% |
 | 迪迦奥特曼 | 每关首次受伤免疫 |
+| 欧布奥特曼·暗耀 | 暴击伤害 +1 |
+| 捷德奥特曼·尊皇 | 每关首次受伤免疫 |
 
 ### 三档难度
 
@@ -89,7 +91,7 @@ build/FoloToy-AI-Passport-full.bin
 当前构建结果：
 
 ```text
-Build:        PASS   app 2,801,904 字节，分区剩余 66%
+Build:        PASS   app 3,111,840 字节，分区剩余 63%
 Host tests:   PASS   math_question / campaign / battle + 仓库主机测试
 Device tests: NOT RUN
 ```
@@ -130,11 +132,11 @@ components/  BSP（显示、按键、音频、电池等）
 - **精灵**：`python tools/build_sprites.py`
   - 读取 `assets/pixel-heroes/`，裁透明边后最近邻缩放到英雄 72 × 88、怪兽 80 × 80
   - 生成 RGB565A8 表到 `main/assets/sprites.c`
-  - 共 80 个描述符，负载 1,528,320 字节
+  - 共 96 个描述符，负载 1,832,448 字节
   - 每位英雄 8 个动作：idle / fight / fly / beam / charge / kick / guard / victory
   - 每只怪兽 5 个动作：idle / attack / roar / charge / hurt
 - **音效**：`python tools/build_sfx.py --source-dir <kenney-pack-root>`
-  - 14 个提示音，16 kHz 单声道 PCM，共 7.11 秒
+  - 16 个提示音，16 kHz 单声道 PCM，共 7.84 秒
   - 来源与许可见 [`assets/audio/SOURCES.md`](assets/audio/SOURCES.md)
 - **字体**：`SOURCE_HAN_SANS=<font.otf> tools/generate_app_fonts.sh`
   - 从 UI 字符串自动采集字形，生成 12 / 14 / 20 / 28 px 4bpp 子集
@@ -154,6 +156,6 @@ components/  BSP（显示、按键、音频、电池等）
 ## 许可与致谢
 
 - 代码：MIT License，基于 [FoloToy AI Passport](https://gitee.com/FoloToy/ai-passport) 的 BSP 与工程结构。
-- 英雄与怪兽原画：本仓库作者提供的原创素材，未使用任何官方特摄作品的角色、名称或音频。
+- 英雄与怪兽原画：本仓库作者提供的原创像素素材；角色名称引用特摄作品设定，未使用官方剧照或音频。
 - 音效：Kenney 素材包，CC0 1.0，明细见 [`assets/audio/SOURCES.md`](assets/audio/SOURCES.md)。
 - 字体：思源黑体（Source Han Sans SC），SIL Open Font License 1.1，见 [`assets/fonts/SourceHanSansSC-LICENSE.txt`](assets/fonts/SourceHanSansSC-LICENSE.txt)。

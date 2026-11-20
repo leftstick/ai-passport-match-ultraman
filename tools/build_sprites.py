@@ -35,6 +35,8 @@ HEROES = [
     ("emerald", "emerald"),
     ("gold", "gold"),
     ("violet", "violet"),
+    ("dark", "dark"),
+    ("royal", "royal"),
 ]
 HERO_POSES = [
     ("idle", 1),
@@ -147,7 +149,7 @@ def main() -> None:
             ]
         )
 
-    lines.append("static const lv_image_dsc_t *const HERO_SPRITES[5][8] = {")
+    lines.append(f"static const lv_image_dsc_t *const HERO_SPRITES[{len(HEROES)}][8] = {{")
     for prefix, _ in HEROES:
         lines.append(
             "    { " + ", ".join(f"&spr_{prefix}_{pose}_dsc" for pose, _ in HERO_POSES) + " },")
@@ -163,7 +165,7 @@ def main() -> None:
         [
             "const lv_image_dsc_t *sprites_hero(uint8_t hero, uint8_t pose)",
             "{",
-            "    if (hero >= 5) hero = 0;",
+            f"    if (hero >= {len(HEROES)}) hero = 0;",
             "    if (pose >= 8) pose = 0;",
             "    return HERO_SPRITES[hero][pose];",
             "}",

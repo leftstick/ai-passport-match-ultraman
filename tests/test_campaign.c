@@ -15,6 +15,12 @@ static void test_content(void)
     }
     assert(strcmp(campaign_hero(0)->name, "赛罗奥特曼") == 0);
     assert(strcmp(campaign_hero(4)->name, "迪迦奥特曼") == 0);
+    assert(strcmp(campaign_hero(5)->name, "欧布奥特曼·暗耀") == 0);
+    assert(strcmp(campaign_hero(5)->sprite_prefix, "dark") == 0);
+    assert(campaign_hero(5)->perk == HERO_PERK_CRIT_DAMAGE);
+    assert(strcmp(campaign_hero(6)->name, "捷德奥特曼·尊皇") == 0);
+    assert(strcmp(campaign_hero(6)->sprite_prefix, "royal") == 0);
+    assert(campaign_hero(6)->perk == HERO_PERK_SHIELD);
 
     for (uint8_t i = 0; i < CAMPAIGN_STAGE_COUNT; i++) {
         const stage_def_t *stage = campaign_stage(i);
