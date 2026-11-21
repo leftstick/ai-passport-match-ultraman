@@ -13,6 +13,15 @@ static void test_layout(void)
     assert(ultimate_total_ms(4) == 4 * 520 + ULT_TAIL_MS);
     assert(ultimate_total_ms(5) == 3 * 340 + ULT_TAIL_MS);
     assert(ultimate_total_ms(6) == 2 * 720 + ULT_TAIL_MS);
+    assert(ultimate_total_ms(7) == 3 * 480 + ULT_TAIL_MS);
+    assert(ultimate_total_ms(8) == 4 * 520 + ULT_TAIL_MS);
+    assert(ultimate_total_ms(9) == 3 * 560 + ULT_TAIL_MS);
+    assert(ultimate_total_ms(10) == 2 * 900 + ULT_TAIL_MS);
+    assert(ultimate_total_ms(11) == 3 * 500 + ULT_TAIL_MS);
+    assert(ultimate_total_ms(12) == 3 * 620 + ULT_TAIL_MS);
+    assert(ultimate_total_ms(13) == 3 * 600 + ULT_TAIL_MS);
+    assert(ultimate_total_ms(14) == 4 * 460 + ULT_TAIL_MS);
+    assert(ultimate_total_ms(15) == 2 * 760 + ULT_TAIL_MS);
     // Out-of-range heroes fall back to blue.
     assert(ultimate_total_ms(99) == ultimate_total_ms(0));
 }
@@ -129,6 +138,31 @@ static void test_dark_and_royal_patterns(void)
     assert(u.perfects == 2);
 }
 
+static void test_new_hero_patterns(void)
+{
+    ultimate_t u;
+    // 欧布·雷霆胸章: two slow, brutal beats.
+    ultimate_start(&u, 10);
+    assert(u.steps == 2);
+    assert(ultimate_step_damage(10, false) == 4);
+    assert(ultimate_step_damage(10, true) == 5);
+
+    // 捷德·银河崛起: alternating claw combo.
+    ultimate_start(&u, 11);
+    for (int i = 0; i < 3; i++) {
+        const uint8_t want = (i & 1) ? ULT_INPUT_DOWN : ULT_INPUT_UP;
+        assert(ultimate_step_input(&u) == want);
+        assert(ultimate_tick(&u, 250) == ULT_JUDGE_NONE);
+        assert(ultimate_press(&u, want) == ULT_JUDGE_PERFECT);
+    }
+    assert(ultimate_all_hit(&u));
+
+    // 究极赛罗: two armored beats.
+    ultimate_start(&u, 15);
+    assert(u.steps == 2);
+    assert(ultimate_step_ms(&u) == 760);
+}
+
 static void test_timeout_crosses_multiple_beats(void)
 {
     ultimate_t u;
@@ -153,6 +187,7 @@ int main(void)
     test_windows();
     test_violet_alternation_and_clean_run();
     test_dark_and_royal_patterns();
+    test_new_hero_patterns();
     test_timeout_crosses_multiple_beats();
     puts("test_ultimate: PASS");
     return 0;

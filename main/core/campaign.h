@@ -4,8 +4,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define CAMPAIGN_HERO_COUNT 7
-#define CAMPAIGN_STAGE_COUNT 8
+#define CAMPAIGN_HERO_COUNT 16
+#define CAMPAIGN_STAGE_COUNT 9
 #define CAMPAIGN_DIFFICULTY_COUNT 3
 
 // Per-stage twists. Each stage keeps at most one or two so the rule stays
@@ -27,6 +27,7 @@ typedef enum {
 
 typedef struct {
     const char *name;
+    const char *short_name;
     const char *perk_text;
     const char *sprite_prefix;
     uint32_t accent_color;

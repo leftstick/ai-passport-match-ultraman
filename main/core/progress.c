@@ -15,9 +15,9 @@ static const char *const BADGE_DETAILS[PROGRESS_BADGE_COUNT] = {
     "满血通过任意一关",
     "单局打出 8 连击",
     "无尽模式到达第 5 关",
-    "打通全部 8 关",
+    "打通全部 9 关",
     "限时猎手得分 300",
-    "8 关全部拿到 3 星",
+    "9 关全部拿到 3 星",
 };
 
 void progress_init(progress_t *progress)
@@ -43,7 +43,7 @@ bool progress_mark_hero(progress_t *progress, uint8_t hero)
     if (hero >= PROGRESS_HERO_COUNT) {
         return false;
     }
-    const uint8_t bit = (uint8_t)(1u << hero);
+    const uint16_t bit = (uint16_t)(1u << hero);
     if ((progress->heroes & bit) != 0) {
         return false;
     }
@@ -91,15 +91,6 @@ uint8_t progress_count16(uint16_t value)
     return count;
 }
 
-uint8_t progress_count8(uint8_t value)
-{
-    uint8_t count = 0;
-    while (value != 0) {
-        value = (uint8_t)(value & (uint8_t)(value - 1u));
-        count++;
-    }
-    return count;
-}
 
 uint8_t progress_three_star_count(uint32_t stars)
 {

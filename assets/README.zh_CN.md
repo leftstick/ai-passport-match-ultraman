@@ -63,11 +63,12 @@ SourceHanSansSC-Regular 生成。16 MB 的源 OTF 不提交。
 [`pixel-heroes/`](pixel-heroes/) 保存用户提供的 512 × 512 英雄与怪兽原画
 （以及 `raw/` 原始图）。它是可编辑源素材，不直接参与编译。
 `tools/build_sprites.py` 会裁剪 alpha 包围盒、按最近邻缩放到 72 × 88（英雄）
-或 80 × 80（怪兽），并生成 RGB565A8 数组写入 `main/assets/sprites.c`。每个
-英雄有 8 种动作（idle、fight、fly、beam、charge、kick、guard、victory），
-每个怪兽有 5 种动作（idle、attack、roar、charge、hurt）；战斗界面会根据当前
-阶段或反馈事件切换对应姿势，而不是始终显示同一张图。96 个描述符共
-1,832,448 字节负载。固件链接的是这些生成表，不要手工修改。
+或 80 × 80（怪兽），并生成 RGB565A8 数组写入 `main/assets/sprites.c`。当前
+阵容包含 16 位英雄与 9 只怪兽，分别放在 `heroes/` 与 `monsters/` 子目录。
+每位英雄有 8 种动作（idle、fight、fly、beam、charge、kick、guard、victory），
+每只怪兽有 5 种动作（idle、attack、roar、charge、hurt）；战斗界面会根据当前
+阶段或反馈事件切换对应姿势，而不是始终显示同一张图。173 个描述符共
+3,297,024 字节负载。固件链接的是这些生成表，不要手工修改。
 `tools/prepare_hero_sources.py` 负责从洋红背景原图重建 512 × 512 透明 PNG，
 并压缩 `raw/` 下体积过大的 JPEG。
 

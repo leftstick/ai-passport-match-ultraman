@@ -23,15 +23,14 @@ AUDIO_DOCS = [
 CAMPAIGN_H = ROOT / "main" / "core" / "campaign.h"
 
 
-def _hero_count() -> int:
-    match = re.search(r"#define CAMPAIGN_HERO_COUNT (\d+)",
+def _campaign_count(name: str) -> int:
+    match = re.search(rf"#define {name} (\d+)",
                       CAMPAIGN_H.read_text(encoding="utf-8"))
     return int(match.group(1)) if match else 0
 
 
-HERO_SPRITES = _hero_count() * 8
-MONSTER_SPRITES = 8 * 5
-HERO_PREFIXES = ("blue_", "red_", "emerald_", "gold_", "violet_", "dark_", "royal_")
+HERO_SPRITES = _campaign_count("CAMPAIGN_HERO_COUNT") * 8
+MONSTER_SPRITES = _campaign_count("CAMPAIGN_STAGE_COUNT") * 5
 PCM_BUDGET_SAMPLES = 200_000
 
 
@@ -55,13 +54,13 @@ def check_sprites(errors: list[str]) -> None:
             errors.append(f"sprites.c: {name} is missing header size")
             continue
         w, h = int(width.group(1)), int(height.group(1))
-        expected = (72, 88) if name.startswith(HERO_PREFIXES) else (80, 80)
+        expected = (72, 88) if name.startswith("hero_") else (80, 80)
         if (w, h) != expected:
             errors.append(f"sprites.c: {name} is {w}x{h}, expected {expected[0]}x{expected[1]}")
     header = SPRITES_H.read_text(encoding="utf-8")
     for symbol in (
-        f"HERO_SPRITES[{_hero_count()}][8]",
-        "MONSTER_SPRITES[8][5]",
+        f"HERO_SPRITES[{_campaign_count('CAMPAIGN_HERO_COUNT')}][8]",
+        f"MONSTER_SPRITES[{_campaign_count('CAMPAIGN_STAGE_COUNT')}][5]",
         "SPRITE_POSE_VICTORY",
         "SPRITE_MONSTER_HURT",
         "SPRITE_POSE_COUNT",

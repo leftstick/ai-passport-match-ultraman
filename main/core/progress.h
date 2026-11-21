@@ -4,8 +4,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define PROGRESS_MONSTER_COUNT 8
-#define PROGRESS_HERO_COUNT 7
+#define PROGRESS_MONSTER_COUNT 9
+#define PROGRESS_HERO_COUNT 16
 
 typedef enum {
     PROGRESS_BADGE_FLAWLESS = 0,   // 无伤通关任意关卡
@@ -19,7 +19,7 @@ typedef enum {
 
 typedef struct {
     uint16_t monsters;  // bit i = 已遭遇第 i 关怪兽
-    uint8_t heroes;     // bit i = 已使用第 i 位英雄
+    uint16_t heroes;    // bit i = 已使用第 i 位英雄
     uint16_t badges;    // bit i = 已获得第 i 枚徽章
     uint32_t time_best;
 } progress_t;
@@ -36,7 +36,6 @@ bool progress_has_badge(const progress_t *progress, uint8_t badge);
 bool progress_record_time(progress_t *progress, uint32_t score);
 
 uint8_t progress_count16(uint16_t value);
-uint8_t progress_count8(uint8_t value);
 uint8_t progress_three_star_count(uint32_t stars);
 
 const char *progress_badge_name(uint8_t badge);

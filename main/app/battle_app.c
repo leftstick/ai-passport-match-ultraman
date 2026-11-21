@@ -109,9 +109,10 @@ _Static_assert((int)ANIM_MONSTER_HURT == (int)SPRITE_MONSTER_HURT, "monster pose
 #define GAUNTLET_WAVES 3
 #define SETTINGS_COUNT 5
 #define COLLECTION_PAGES 3
-#define COLLECTION_HERO_CELLS 7
-#define COLLECTION_MONSTER_CELLS 8
+#define COLLECTION_HERO_CELLS 16
+#define COLLECTION_MONSTER_CELLS 9
 #define COLLECTION_BADGE_CELLS 6
+#define COLLECTION_CELLS COLLECTION_HERO_CELLS
 #define TIME_RESULT_ITEMS 2
 
 typedef enum {
@@ -225,10 +226,10 @@ typedef struct {
     lv_obj_t *battery;
     lv_obj_t *tab[COLLECTION_PAGES];
     lv_obj_t *tab_text[COLLECTION_PAGES];
-    lv_obj_t *cell[COLLECTION_MONSTER_CELLS];
-    lv_obj_t *cell_img[COLLECTION_MONSTER_CELLS];
-    lv_obj_t *cell_title[COLLECTION_MONSTER_CELLS];
-    lv_obj_t *cell_detail[COLLECTION_MONSTER_CELLS];
+    lv_obj_t *cell[COLLECTION_CELLS];
+    lv_obj_t *cell_img[COLLECTION_CELLS];
+    lv_obj_t *cell_title[COLLECTION_CELLS];
+    lv_obj_t *cell_detail[COLLECTION_CELLS];
 } collection_ui_t;
 
 typedef struct {
@@ -654,7 +655,7 @@ static void prepare_review_view(void)
 static uint8_t gauntlet_stage(uint8_t wave)
 {
     // The three hardest fights double as the elite gauntlet.
-    static const uint8_t stages[GAUNTLET_WAVES] = { 5, 6, 7 };
+    static const uint8_t stages[GAUNTLET_WAVES] = { 6, 7, 8 };
     if (wave == 0 || wave > GAUNTLET_WAVES) {
         wave = 1;
     }
@@ -682,8 +683,8 @@ static bool mode_unlocked(game_mode_t mode)
         // Clearing stage 1 unlocks the second stage, which gates endless.
         return s_app.unlocked >= 1;
     case MODE_GAUNTLET:
-        // Clearing stage 5 unlocks stage 6; the gauntlet starts there.
-        return s_app.unlocked >= 5;
+        // Clearing stage 6 unlocks stage 7; the gauntlet starts there.
+        return s_app.unlocked >= 6;
     case MODE_TIME:
         // Clearing stage 2 unlocks stage 3; time attack opens there.
         return s_app.unlocked >= 2;
@@ -698,7 +699,7 @@ static const char *mode_lock_hint(game_mode_t mode)
     case MODE_ENDLESS:
         return "通关第1关解锁 · 长按↑换模式";
     case MODE_GAUNTLET:
-        return "通关第5关解锁 · 长按↑换模式";
+        return "通关第6关解锁 · 长按↑换模式";
     case MODE_TIME:
         return "通关第2关解锁 · 长按↑换模式";
     default:
@@ -996,23 +997,23 @@ static void build_stages(void)
     make_label(scr, 120, 9, 74, diff_text, &app_font_12, COL_GOLD);
 
     for (int i = 0; i < CAMPAIGN_STAGE_COUNT; i++) {
-        const int y = 32 + i * 28;
+        const int y = 30 + i * 25;
         const stage_def_t *stage = campaign_stage((uint8_t)i);
-        s_app.stages.row[i] = make_panel(scr, 4, y, 232, 26, COL_TILE, 6);
+        s_app.stages.row[i] = make_panel(scr, 4, y, 232, 24, COL_TILE, 5);
 
         char num[8];
         snprintf(num, sizeof(num), "%d", i + 1);
-        make_label(s_app.stages.row[i], 6, 5, 14, num, &app_font_12, COL_DIM);
-        make_label(s_app.stages.row[i], 22, 5, 120, stage->name, &app_font_12,
+        make_label(s_app.stages.row[i], 6, 4, 14, num, &app_font_12, COL_DIM);
+        make_label(s_app.stages.row[i], 22, 4, 120, stage->name, &app_font_12,
                    COL_TEXT);
-        s_app.stages.stars[i] = make_center(s_app.stages.row[i], 148, 5, 52, "",
+        s_app.stages.stars[i] = make_center(s_app.stages.row[i], 148, 4, 52, "",
                                             &app_font_12, COL_GOLD);
-        s_app.stages.status[i] = make_label(s_app.stages.row[i], 202, 5, 24, "",
+        s_app.stages.status[i] = make_label(s_app.stages.row[i], 202, 4, 24, "",
                                             &app_font_12, COL_DIM);
     }
 
-    s_app.stages.detail_1 = make_label(scr, 8, 256, 224, "", &app_font_12, COL_TEXT);
-    s_app.stages.detail_2 = make_center(scr, 0, 272, SCREEN_W, "", &app_font_12,
+    s_app.stages.detail_1 = make_label(scr, 8, 258, 224, "", &app_font_12, COL_TEXT);
+    s_app.stages.detail_2 = make_center(scr, 0, 274, SCREEN_W, "", &app_font_12,
                                         COL_GOLD);
     make_center(scr, 0, 298, SCREEN_W, "上下选关 · 确定出击 · 长按返回", &app_font_12,
                 COL_DIM);
@@ -1104,7 +1105,7 @@ static void build_settings(void)
     char buf[48];
     snprintf(buf, sizeof(buf), "错题%d · 英雄%d/%d · 怪兽%d/%d",
              (int)s_app.review.count,
-             (int)progress_count8(s_app.progress.heroes), PROGRESS_HERO_COUNT,
+             (int)progress_count16(s_app.progress.heroes), PROGRESS_HERO_COUNT,
              (int)progress_count16(s_app.progress.monsters),
              PROGRESS_MONSTER_COUNT);
     make_center(scr, 0, 258, SCREEN_W, buf, &app_font_12, COL_DIM);
@@ -1549,25 +1550,24 @@ static void collection_tabs(lv_obj_t *scr)
 static void build_collection_heroes(lv_obj_t *scr)
 {
     collection_ui_t *ui = &s_app.collection;
+    // Two columns let all sixteen heroes fit without scrolling.
     for (uint8_t i = 0; i < COLLECTION_HERO_CELLS; i++) {
-        const int y = 52 + i * 35;
-        const bool found = (s_app.progress.heroes & (uint8_t)(1u << i)) != 0;
-        ui->cell[i] = make_panel(scr, 6, y, 228, 33, COL_TILE, 6);
+        const int col = i % 2;
+        const int row = i / 2;
+        const int x = col == 0 ? 6 : 120;
+        const int y = 52 + row * 30;
+        const bool found = (s_app.progress.heroes & (uint16_t)(1u << i)) != 0;
+        ui->cell[i] = make_panel(scr, x, y, 114, 28, COL_TILE, 5);
         ui->cell_img[i] = lv_image_create(ui->cell[i]);
         lv_image_set_src(ui->cell_img[i], sprites_hero(i, SPRITE_POSE_IDLE));
-        lv_obj_set_pos(ui->cell_img[i], 4, 2);
-        lv_obj_set_size(ui->cell_img[i], 26, 32);
+        lv_obj_set_pos(ui->cell_img[i], 3, 1);
+        lv_obj_set_size(ui->cell_img[i], 22, 26);
         if (!found) {
             lv_obj_set_style_image_opa(ui->cell_img[i], LV_OPA_30, 0);
         }
-        ui->cell_title[i] = make_label(ui->cell[i], 34, 8, 140,
-                                       found ? campaign_hero(i)->name : "???",
-                                       &app_font_14, found ? COL_TEXT : COL_DIM);
-        ui->cell_detail[i] = make_label(ui->cell[i], 176, 2, 46,
-                                        found ? "已收录" : "未收录",
-                                        &app_font_12,
-                                        found ? COL_OK : COL_DIM);
-        lv_obj_set_style_text_align(ui->cell_detail[i], LV_TEXT_ALIGN_RIGHT, 0);
+        ui->cell_title[i] = make_label(ui->cell[i], 27, 7, 85,
+                                       found ? campaign_hero(i)->short_name : "???",
+                                       &app_font_12, found ? COL_TEXT : COL_DIM);
     }
 }
 
@@ -1575,13 +1575,13 @@ static void build_collection_monsters(lv_obj_t *scr)
 {
     collection_ui_t *ui = &s_app.collection;
     for (uint8_t i = 0; i < COLLECTION_MONSTER_CELLS; i++) {
-        const int y = 52 + i * 30;
+        const int y = 52 + i * 26;
         const bool found = (s_app.progress.monsters & (uint16_t)(1u << i)) != 0;
-        ui->cell[i] = make_panel(scr, 6, y, 228, 28, COL_TILE, 5);
+        ui->cell[i] = make_panel(scr, 6, y, 228, 24, COL_TILE, 5);
         ui->cell_img[i] = lv_image_create(ui->cell[i]);
         lv_image_set_src(ui->cell_img[i], sprites_monster(i, SPRITE_MONSTER_IDLE));
-        lv_obj_set_pos(ui->cell_img[i], 4, 2);
-        lv_obj_set_size(ui->cell_img[i], 24, 24);
+        lv_obj_set_pos(ui->cell_img[i], 3, 1);
+        lv_obj_set_size(ui->cell_img[i], 22, 22);
         if (!found) {
             lv_obj_set_style_image_opa(ui->cell_img[i], LV_OPA_30, 0);
         }
@@ -1592,7 +1592,7 @@ static void build_collection_monsters(lv_obj_t *scr)
         } else {
             snprintf(name, sizeof(name), "%d ???", (int)i + 1);
         }
-        ui->cell_title[i] = make_label(ui->cell[i], 34, 6, 140, name,
+        ui->cell_title[i] = make_label(ui->cell[i], 30, 5, 142, name,
                                        &app_font_12, found ? COL_TEXT : COL_DIM);
         ui->cell_detail[i] = make_label(ui->cell[i], 176, 4, 46,
                                         found ? "已遭遇" : "未遭遇",
@@ -1953,11 +1953,33 @@ static const char *ultimate_title(uint8_t hero)
     case 1:
         return "泰罗 · 斯特利姆光线";
     case 2:
-        return "泰迦 · 光子斯特利姆";
+        return "梦比优斯 · 梦比姆射线";
     case 3:
         return "泽塔 · 泽斯蒂姆光线";
     case 4:
         return "迪迦 · 泽佩利敖光线";
+    case 5:
+        return "贝利亚 · 帝斯修姆光线";
+    case 6:
+        return "捷德 · 皇家终结";
+    case 7:
+        return "赛文 · 艾梅利姆光线";
+    case 8:
+        return "银河 · 银河交叉射线";
+    case 9:
+        return "欧布 · 斯派修姆泽佩利敖";
+    case 10:
+        return "欧布 · 斯特比姆爆炸";
+    case 11:
+        return "捷德 · 银河冲击";
+    case 12:
+        return "特利迦 · 泽佩利敖光线";
+    case 13:
+        return "德凯 · 塞尔杰特光线";
+    case 14:
+        return "布莱泽 · 螺旋光矛";
+    case 15:
+        return "究极赛罗 · 赛罗终极剑";
     default:
         return "必杀技!";
     }
@@ -3290,21 +3312,22 @@ static void set_notice(const char *text)
     set_notice_ms(text, 1600000LL);
 }
 
-// Defeat cries follow the monster's build: heavy beasts bellow, flyers shriek,
-// mechanical shells grind, and the alien/fish types warble.
+// Defeat cries follow the monster's build: armoured beasts bellow, the chimera
+// shrieks, mechanical shells grind, and the alien/fish types warble.
 static sfx_id_t monster_cry_id(uint8_t stage)
 {
     switch (stage) {
-    case 1:  // 雷德王
+    case 1:  // 贝姆拉
+    case 3:  // 哥尔赞
     case 4:  // 哥莫拉
+    case 6:  // 雷德王
         return SFX_CRY_HEAVY;
-    case 3:  // 多拉考
-    case 7:  // 魔格大蛇
+    case 7:  // 泰兰特
         return SFX_CRY_WINGED;
-    case 5:  // 加拉特隆
-    case 6:  // 杰顿
+    case 5:  // 金古桥
+    case 8:  // 杰顿
         return SFX_CRY_MECH;
-    default:  // 巴尔坦星人 / 雷伊洛斯
+    default:  // 巴尔坦星人 / 艾雷王
         return SFX_CRY_ALIEN;
     }
 }

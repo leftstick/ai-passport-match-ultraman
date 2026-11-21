@@ -16,13 +16,22 @@ typedef struct {
 } ult_def_t;
 
 static const ult_def_t DEFS[CAMPAIGN_HERO_COUNT] = {
-    {3, 600, 0, 70, 180, 1, 1},    // blue: steady three-beat beam
-    {3, 420, 0, 60, 150, 2, 3},    // red: fast, heavy hits
-    {3, 760, 0, 126, 324, 1, 1},   // emerald: wide, forgiving beats
-    {1, 800, 0, 90, 220, 4, 5},    // gold: one charged strike
-    {4, 520, 1, 70, 170, 1, 1},    // violet: alternating up/down
-    {3, 340, 0, 45, 110, 2, 3},    // dark: three lightning beats, heavy damage
-    {2, 720, 0, 110, 280, 3, 4},   // royal: two slow, guard-breaking beats
+    {3, 600, 0, 70, 180, 1, 1},    // 赛罗: steady three-beat beam
+    {3, 420, 0, 60, 150, 2, 3},    // 泰罗: fast, heavy hits
+    {3, 760, 0, 126, 324, 1, 1},   // 梦比优斯: wide, forgiving beats
+    {1, 800, 0, 90, 220, 4, 5},    // 泽塔: one charged strike
+    {4, 520, 1, 70, 170, 1, 1},    // 迪迦: alternating up/down
+    {3, 340, 0, 45, 110, 2, 3},    // 贝利亚: lightning beats, heavy damage
+    {2, 720, 0, 110, 280, 3, 4},   // 捷德·尊皇: two slow, guard-breaking beats
+    {3, 480, 0, 58, 140, 2, 3},    // 赛文: quick slugger beats
+    {4, 520, 0, 70, 170, 1, 2},    // 银河: four crystal beats
+    {3, 560, 0, 64, 160, 2, 3},    // 欧布·斯派修姆: balanced beam
+    {2, 900, 0, 130, 320, 4, 5},   // 欧布·雷霆: slow, brutal strikes
+    {3, 500, 1, 70, 170, 2, 3},    // 捷德·银河: alternating claw combo
+    {3, 620, 0, 84, 200, 2, 3},    // 特利迦: calm three-beat beam
+    {3, 600, 0, 76, 190, 2, 3},    // 德凯: firm three-beat beam
+    {4, 460, 1, 64, 150, 1, 2},    // 布莱泽: wild alternating strikes
+    {2, 760, 0, 100, 260, 3, 4},   // 究极赛罗: two armored beats
 };
 
 static const ult_def_t *def_for(uint8_t hero)

@@ -10,21 +10,29 @@ static void test_content(void)
     for (uint8_t i = 0; i < CAMPAIGN_HERO_COUNT; i++) {
         const hero_def_t *hero = campaign_hero(i);
         assert(hero->name[0] != '\0');
+        assert(hero->short_name[0] != '\0');
         assert(hero->perk_text[0] != '\0');
+        assert(hero->sprite_prefix[0] != '\0');
         assert(hero->perk <= HERO_PERK_SHIELD);
     }
     assert(strcmp(campaign_hero(0)->name, "赛罗奥特曼") == 0);
-    assert(strcmp(campaign_hero(2)->name, "泰迦奥特曼·光子地球") == 0);
-    assert(strcmp(campaign_hero(2)->sprite_prefix, "emerald") == 0);
-    assert(strcmp(campaign_hero(3)->name, "泽塔奥特曼·德尔塔天爪") == 0);
-    assert(strcmp(campaign_hero(3)->sprite_prefix, "gold") == 0);
+    assert(strcmp(campaign_hero(0)->sprite_prefix, "zero") == 0);
+    assert(strcmp(campaign_hero(2)->name, "梦比优斯奥特曼") == 0);
+    assert(strcmp(campaign_hero(2)->sprite_prefix, "mebius") == 0);
+    assert(campaign_hero(2)->perk == HERO_PERK_TIME);
+    assert(strcmp(campaign_hero(3)->name, "泽塔奥特曼") == 0);
+    assert(strcmp(campaign_hero(3)->sprite_prefix, "z") == 0);
+    assert(campaign_hero(3)->perk == HERO_PERK_CRIT_ZONE);
     assert(strcmp(campaign_hero(4)->name, "迪迦奥特曼") == 0);
+    assert(campaign_hero(4)->perk == HERO_PERK_SHIELD);
     assert(strcmp(campaign_hero(5)->name, "贝利亚奥特曼") == 0);
-    assert(strcmp(campaign_hero(5)->sprite_prefix, "dark") == 0);
+    assert(strcmp(campaign_hero(5)->sprite_prefix, "belial") == 0);
     assert(campaign_hero(5)->perk == HERO_PERK_CRIT_DAMAGE);
     assert(strcmp(campaign_hero(6)->name, "捷德奥特曼·尊皇") == 0);
-    assert(strcmp(campaign_hero(6)->sprite_prefix, "royal") == 0);
+    assert(strcmp(campaign_hero(6)->sprite_prefix, "geed-royal-megamaster") == 0);
     assert(campaign_hero(6)->perk == HERO_PERK_SHIELD);
+    assert(strcmp(campaign_hero(15)->name, "究极赛罗") == 0);
+    assert(strcmp(campaign_hero(15)->sprite_prefix, "ultimate-zero") == 0);
 
     for (uint8_t i = 0; i < CAMPAIGN_STAGE_COUNT; i++) {
         const stage_def_t *stage = campaign_stage(i);
@@ -46,8 +54,10 @@ static void test_clamps(void)
 {
     assert(campaign_question_ms(0, 0, 0) == 39500);
     assert(campaign_question_ms(0, 0, 2) == 40300);
-    assert(campaign_question_ms(7, 0, 0) == 36700);
-    assert(campaign_question_ms(7, 2, 0) == 4200);
+    assert(campaign_question_ms(7, 0, 0) == 36900);
+    assert(campaign_question_ms(7, 2, 0) == 4400);
+    assert(campaign_question_ms(8, 0, 0) == 36700);
+    assert(campaign_question_ms(8, 2, 0) == 4200);
     assert(campaign_question_ms(0, 2, 0) == 7000);
 
     // 星光 runs one curriculum tier lower, clamped to tier 1 at the start.
@@ -56,12 +66,14 @@ static void test_clamps(void)
     assert(campaign_math_stage(4, 0) == 2);
     assert(campaign_math_stage(6, 0) == 3);
     assert(campaign_math_stage(7, 0) == 3);
+    assert(campaign_math_stage(8, 0) == 3);
     assert(campaign_math_stage(0, 1) == 1);
     assert(campaign_math_stage(4, 1) == 3);
     assert(campaign_math_stage(7, 1) == 4);
-    assert(campaign_math_stage(7, 2) == 4);
+    assert(campaign_math_stage(8, 1) == 4);
+    assert(campaign_math_stage(8, 2) == 4);
     // Out-of-range difficulty falls back to 星光, so the tier drops with it.
-    assert(campaign_math_stage(7, 9) == 3);
+    assert(campaign_math_stage(8, 9) == 3);
 
     assert(campaign_hero_hp(0) == 5);
     assert(campaign_hero_hp(1) == 4);

@@ -11,11 +11,11 @@ static void test_monsters(void)
     progress_init(&progress);
     assert(progress.monsters == 0);
     assert(progress_mark_monster(&progress, 0));
-    assert(progress_mark_monster(&progress, 7));
-    assert(!progress_mark_monster(&progress, 7));
+    assert(progress_mark_monster(&progress, 8));
+    assert(!progress_mark_monster(&progress, 8));
     assert(!progress_mark_monster(&progress, PROGRESS_MONSTER_COUNT));
     assert(progress_count16(progress.monsters) == 2);
-    assert(progress.monsters == 0x0081);
+    assert(progress.monsters == 0x0101);
 }
 
 static void test_heroes(void)
@@ -23,10 +23,11 @@ static void test_heroes(void)
     progress_t progress;
     progress_init(&progress);
     assert(progress_mark_hero(&progress, 6));
-    assert(!progress_mark_hero(&progress, 6));
+    assert(progress_mark_hero(&progress, 15));
+    assert(!progress_mark_hero(&progress, 15));
     assert(!progress_mark_hero(&progress, PROGRESS_HERO_COUNT));
-    assert(progress_count8(progress.heroes) == 1);
-    assert(progress.heroes == 0x40);
+    assert(progress_count16(progress.heroes) == 2);
+    assert(progress.heroes == 0x8040);
 }
 
 static void test_badges(void)
@@ -62,7 +63,7 @@ static void test_time_best(void)
 
 static void test_three_stars(void)
 {
-    // 8 关,每关 2 bit。前 3 关满星,第 4 关 2 星。
+    // 9 关,每关 2 bit。前 3 关满星,第 4 关 2 星。
     uint32_t stars = 0;
     for (uint8_t i = 0; i < 3; i++) {
         stars |= 3u << (i * 2u);
@@ -70,7 +71,7 @@ static void test_three_stars(void)
     stars |= 2u << (3u * 2u);
     assert(progress_three_star_count(stars) == 3);
     assert(progress_three_star_count(0) == 0);
-    assert(progress_three_star_count(0xFFFFu) == PROGRESS_MONSTER_COUNT);
+    assert(progress_three_star_count(0x3FFFFu) == PROGRESS_MONSTER_COUNT);
 }
 
 int main(void)

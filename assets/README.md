@@ -66,12 +66,14 @@ Store reusable source images and generated display assets in `images/`.
 monster artwork (plus `raw/` originals). It is the editable source and is not
 compiled directly. `tools/build_sprites.py` trims each alpha bounding box,
 nearest-neighbour resizes it to 72 × 88 (heroes) or 80 × 80 (monsters), and
-writes RGB565A8 arrays to `main/assets/sprites.c`. Each hero now has eight
-action poses (idle, fight, fly, beam, charge, kick, guard, victory) and each
-monster five (idle, attack, roar, charge, hurt). The battle screen switches to
-the pose that matches the current phase or feedback event, so every state has
-its own reaction instead of a single static image. The 96 descriptors total
-1,832,448 bytes of payload. Those generated tables are what the firmware links;
+writes RGB565A8 arrays to `main/assets/sprites.c`. The current roster has 16
+heroes and nine monsters, grouped in the `heroes/` and `monsters/`
+subdirectories. Each hero has eight action poses (idle, fight, fly, beam,
+charge, kick, guard, victory) and each monster five (idle, attack, roar,
+charge, hurt). The battle screen switches to the pose that matches the current
+phase or feedback event, so every state has its own reaction instead of a
+single static image. The 173 descriptors total 3,297,024 bytes of payload.
+Those generated tables are what the firmware links;
 do not edit them by hand. `tools/prepare_hero_sources.py` rebuilds the
 512 × 512 transparent PNGs from the magenta-background originals and compresses
 oversized JPEGs under `raw/`.
