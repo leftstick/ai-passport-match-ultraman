@@ -11,7 +11,9 @@
 
 #define BATTLE_GAUGE_MAX 20
 #define BATTLE_REVIEW_SLOTS 2
-#define BATTLE_CRITICAL_MS 800
+// The critical sweep lasts 5.8 s (was 0.8 s) so a first-time player can read
+// the prompt, find the gold band, and still press OK.
+#define BATTLE_CRITICAL_MS 5800
 #define BATTLE_ATTACK_MS 520
 #define BATTLE_ENEMY_MS 760
 #define BATTLE_GUARD_MS 1100

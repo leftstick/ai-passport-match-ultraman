@@ -137,6 +137,19 @@ static void test_critical_timeout(void)
     assert(b.monster_hp == 3);
 }
 
+static void test_critical_sweep_is_readable(void)
+{
+    battle_t b;
+    battle_start(&b, 0, 0, 0, 4444);
+    answer_correct(&b);
+    // The sweep has to stay on screen long enough for a first-time player.
+    assert(BATTLE_CRITICAL_MS >= 5000);
+    assert(battle_tick(&b, 2000) == BATTLE_EV_NONE);
+    assert(b.phase == BATTLE_PHASE_CRITICAL);
+    assert(battle_tick(&b, BATTLE_CRITICAL_MS - 2000) ==
+           BATTLE_EV_CRITICAL_MISS);
+}
+
 static void test_perfect_critical_and_speed_bonus(void)
 {
     battle_t b;
@@ -841,6 +854,7 @@ int main(void)
     test_correct_critical_and_history();
     test_critical_miss();
     test_critical_timeout();
+    test_critical_sweep_is_readable();
     test_perfect_critical_and_speed_bonus();
     test_red_hero_perfect_damage();
     test_wrong_and_timeout();

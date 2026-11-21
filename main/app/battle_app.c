@@ -122,6 +122,14 @@ typedef enum {
     OVERLAY_WAVE,
 } overlay_t;
 
+// First-stage coaching cards. They freeze the battle until OK is pressed so
+// the text cannot scroll past while a scene transition runs.
+typedef enum {
+    TUTORIAL_NONE = 0,
+    TUTORIAL_SELECT,
+    TUTORIAL_CRITICAL,
+} tutorial_card_t;
+
 typedef enum {
     MODE_CAMPAIGN = 0,
     MODE_ENDLESS,
@@ -217,6 +225,10 @@ typedef struct {
     lv_obj_t *beam_glow;
     lv_obj_t *beam_core;
     lv_obj_t *flash;
+    lv_obj_t *tutorial;
+    lv_obj_t *tutorial_title;
+    lv_obj_t *tutorial_body;
+    lv_obj_t *tutorial_footer;
     lv_obj_t *popup[POPUP_COUNT];
 } battle_ui_t;
 
@@ -327,12 +339,17 @@ static struct {
     int16_t ui_beam_pips;
     bool ui_pips_visible;
     uint8_t beam_cue_next;
+
+    uint8_t tutorial;
+    bool tutorial_enabled;
+    bool tutorial_crit_shown;
 } s_app;
 
 static volatile bool s_save_pending;
 
 static void set_notice(const char *text);
 static void set_notice_ms(const char *text, int64_t duration_us);
+static void show_tutorial(uint8_t card);
 
 // ---------------------------------------------------------------------------
 // 基础控件
@@ -856,8 +873,11 @@ static void refresh_stages(void)
         snprintf(line, sizeof(line), "对手:%s", stage->monster_name);
     }
     label_set(s_app.stages.detail_1, line);
+    const bool tutorial_stage =
+        s_app.stage <= 1 && s_app.unlocked <= s_app.stage;
     label_set(s_app.stages.detail_2,
-              "★3 0错满血 · ★2 ≤1错 · ★1 通关");
+              tutorial_stage ? "教程关 · 会停下来教你操作"
+                             : "★3 0错满血 · ★2 ≤1错 · ★1 通关");
 }
 
 static void build_stages(void)
@@ -2097,6 +2117,24 @@ static void build_battle(void)
         set_hidden(ui->beam_pip[i], true);
     }
 
+    // Coaching card for the first two campaign stages. The dim layer freezes
+    // the scene visually while the battle clock is held by tick_battle().
+    ui->tutorial = make_panel(scr, 0, 0, SCREEN_W, SCREEN_H, 0x000000, 0);
+    lv_obj_set_style_bg_opa(ui->tutorial, LV_OPA_70, 0);
+    lv_obj_set_style_border_width(ui->tutorial, 0, 0);
+    set_hidden(ui->tutorial, true);
+    lv_obj_t *card = make_panel(ui->tutorial, 20, 65, 200, 190, COL_PANEL, 12);
+    lv_obj_set_style_border_width(card, 2, 0);
+    lv_obj_set_style_border_color(card, lv_color_hex(COL_GOLD), 0);
+    ui->tutorial_title = make_center(card, 0, 12, 200, "", &app_font_20,
+                                     COL_GOLD);
+    ui->tutorial_body = make_label(card, 12, 46, 176, "", &app_font_14,
+                                   COL_TEXT);
+    lv_obj_set_style_text_align(ui->tutorial_body, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(ui->tutorial_body, LV_LABEL_LONG_WRAP);
+    ui->tutorial_footer = make_center(card, 0, 164, 200, "", &app_font_12,
+                                      COL_DIM);
+
     for (int i = 0; i < POPUP_COUNT; i++) {
         ui->popup[i] = make_center(ui->arena, 0, 0, 54, "", &app_font_20,
                                    COL_TEXT);
@@ -2155,6 +2193,7 @@ static void build_battle(void)
     s_app.ui_beam_pips = -1;
     s_app.ui_pips_visible = false;
     s_app.beam_cue_next = 0;
+    s_app.tutorial = TUTORIAL_NONE;
 
     refresh_battle();
 }
@@ -2498,13 +2537,30 @@ static void begin_battle(uint8_t stage, uint16_t carry_hp, int32_t carry_score)
     }
     battle_queue_review(&s_app.battle, questions, count);
 
+    // The first two campaign stages coach the player. Cards appear only while
+    // the stage is still uncleared, so replays do not interrupt the flow.
+    s_app.tutorial_enabled = s_app.mode == MODE_CAMPAIGN &&
+                             s_app.battle.stage <= 1 &&
+                             s_app.unlocked <= s_app.battle.stage;
+    s_app.tutorial_crit_shown = false;
+    const bool start_tutorial =
+        s_app.tutorial_enabled && s_app.battle.stage == 0;
+
     // Hold the round on a short READY beat so the player can see the board
-    // before the question timer starts. OK skips it.
+    // before the question timer starts. OK skips it. Stage 1 keeps the READY
+    // beat; stage 0 opens on a coaching card instead.
     battle_pause(&s_app.battle);
-    s_app.ready_until_us = esp_timer_get_time() + (int64_t)READY_MS * 1000;
+    if (start_tutorial) {
+        s_app.ready_until_us = 0;
+    } else {
+        s_app.ready_until_us = esp_timer_get_time() + (int64_t)READY_MS * 1000;
+    }
 
     s_app.page = PAGE_BATTLE;
     build_battle();
+    if (start_tutorial) {
+        show_tutorial(TUTORIAL_SELECT);
+    }
     audio_player_play(SFX_CONFIRM);
 
     char intro[32];
@@ -2633,6 +2689,55 @@ static sfx_id_t monster_cry_id(uint8_t stage)
     }
 }
 
+// ---------------------------------------------------------------------------
+// 教程卡
+// ---------------------------------------------------------------------------
+static void show_tutorial(uint8_t card)
+{
+    battle_ui_t *ui = &s_app.battle_ui;
+    if (ui->tutorial == NULL) {
+        return;
+    }
+    s_app.tutorial = card;
+    if (card == TUTORIAL_SELECT) {
+        label_set(ui->tutorial_title, "教程 · 答题");
+        label_set(ui->tutorial_body,
+                  "用 ↑ ↓ 选择答案\n\n选中后按 OK 确认\n\n答对才能攻击怪兽");
+        label_set(ui->tutorial_footer, "按 OK 开始");
+    } else {
+        label_set(ui->tutorial_title, "教程 · 追加攻击");
+        label_set(ui->tutorial_body,
+                  "答对后会出现进度条\n\n白条扫到金色区域时\n再按一次 OK\n\n就能打出更强的一击");
+        label_set(ui->tutorial_footer, "按 OK 继续");
+    }
+    set_hidden(ui->tutorial, false);
+}
+
+static void dismiss_tutorial(void)
+{
+    s_app.tutorial = TUTORIAL_NONE;
+    if (s_app.battle_ui.tutorial != NULL) {
+        set_hidden(s_app.battle_ui.tutorial, true);
+    }
+    if (s_app.battle.phase == BATTLE_PHASE_PAUSED) {
+        battle_resume(&s_app.battle);
+    }
+    s_app.ready_until_us = 0;
+    s_app.last_tick_us = esp_timer_get_time();
+    audio_player_play(SFX_CONFIRM);
+    refresh_battle();
+}
+
+static void maybe_show_critical_tutorial(void)
+{
+    if (!s_app.tutorial_enabled || s_app.tutorial_crit_shown) {
+        return;
+    }
+    s_app.tutorial_crit_shown = true;
+    show_tutorial(TUTORIAL_CRITICAL);
+    refresh_battle();
+}
+
 static void handle_battle_event(battle_event_t event)
 {
     battle_t *battle = &s_app.battle;
@@ -2653,6 +2758,7 @@ static void handle_battle_event(battle_event_t event)
         }
         s_app.feedback_correct = battle->question.correct_index;
         s_app.feedback_wrong = 0xFF;
+        maybe_show_critical_tutorial();
         break;
     case BATTLE_EV_WRONG:
     case BATTLE_EV_TIMEOUT: {
@@ -2844,6 +2950,15 @@ static void tick_beam_cues(void)
 static void tick_battle(void)
 {
     const int64_t now = esp_timer_get_time();
+
+    // A coaching card freezes the round: the question clock, the critical
+    // marker and the beam timer all stop until the player presses OK.
+    if (s_app.tutorial != TUTORIAL_NONE) {
+        s_app.last_tick_us = now;
+        refresh_battle_with_dt(0);
+        return;
+    }
+
     if (s_app.ready_until_us > 0) {
         if (now < s_app.ready_until_us) {
             // The round is paused, so the question clock stays frozen while
@@ -3105,6 +3220,14 @@ static void handle_stage_key(bsp_btn_t btn, bsp_btn_ev_t event)
 
 static void handle_battle_key(bsp_btn_t btn, bsp_btn_ev_t event)
 {
+    if (s_app.tutorial != TUTORIAL_NONE) {
+        if ((event == BSP_BTN_CLICK || event == BSP_BTN_LONG) &&
+            btn == BSP_BTN_OK) {
+            dismiss_tutorial();
+        }
+        return;
+    }
+
     if (s_app.ready_until_us > 0) {
         if (event == BSP_BTN_CLICK && btn == BSP_BTN_OK) {
             s_app.ready_until_us = 0;
