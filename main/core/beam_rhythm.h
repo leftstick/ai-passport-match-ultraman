@@ -8,10 +8,10 @@
 // The first beat waits behind a three-second count-in so the player can hear
 // the metronome and find the gold band before timing counts.
 #define BEAM_LEAD_IN_MS 3000
-#define BEAM_BEAT_INTERVAL_MS 1000
-// The duel is won by landing four clean beats out of five. A charged start
-// (the blue ultimate) grants one grace beat, so three clean beats can win.
-#define BEAM_WIN_HITS 4
+#define BEAM_BEAT_INTERVAL_MS 1200
+// The duel is won by landing three clean beats out of five. A charged start
+// (the blue ultimate) grants one grace beat, so two clean beats can win.
+#define BEAM_WIN_HITS 3
 #define BEAM_GRACE_START_FORCE 25
 #define BEAM_PERFECT_MS 120
 #define BEAM_WINDOW_MS 260

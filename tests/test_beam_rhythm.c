@@ -4,14 +4,15 @@
 #include <assert.h>
 #include <stdio.h>
 
-static const uint16_t BEATS[BEAM_BEAT_COUNT] = {3000, 4000, 5000, 6000, 7000};
+static const uint16_t BEATS[BEAM_BEAT_COUNT] = {3000, 4200, 5400, 6600, 7800};
 
 static void test_layout(void)
 {
     assert(BEAM_BEAT_COUNT == 5);
     assert(BEAM_LEAD_IN_MS == 3000);
+    assert(BEAM_BEAT_INTERVAL_MS == 1200);
     assert(beam_rhythm_beat_ms(0) == 3000);
-    assert(beam_rhythm_beat_ms(4) == 7000);
+    assert(beam_rhythm_beat_ms(4) == 7800);
     assert(beam_rhythm_beat_ms(5) == UINT32_MAX);
 }
 
@@ -70,17 +71,17 @@ static void test_one_miss_still_wins(void)
     assert(beam_rhythm_won(&r));
 }
 
-static void test_two_misses_lose(void)
+static void test_three_misses_lose(void)
 {
     beam_rhythm_t r;
     beam_rhythm_start(&r, 0);
     uint32_t elapsed = 0;
     for (int i = 0; i < BEAM_BEAT_COUNT; i++) {
-        const uint32_t press_at = i >= 3 ? BEATS[i] + 400 : BEATS[i];
+        const uint32_t press_at = i >= 2 ? BEATS[i] + 400 : BEATS[i];
         beam_rhythm_tick(&r, press_at - elapsed);
         elapsed = press_at;
         assert(beam_rhythm_press(&r, press_at) ==
-               (i >= 3 ? BEAM_JUDGE_MISS : BEAM_JUDGE_PERFECT));
+               (i >= 2 ? BEAM_JUDGE_MISS : BEAM_JUDGE_PERFECT));
     }
     assert(beam_rhythm_beats_left(&r) == 0);
     assert(!beam_rhythm_won(&r));
@@ -90,16 +91,16 @@ static void test_expire_spends_untouched_beats(void)
 {
     beam_rhythm_t r;
     beam_rhythm_start(&r, 0);
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < BEAM_WIN_HITS; i++) {
         beam_rhythm_tick(&r, BEATS[i] - (i == 0 ? 0 : BEATS[i - 1]));
         assert(beam_rhythm_press(&r, BEATS[i]) == BEAM_JUDGE_PERFECT);
     }
-    assert(beam_rhythm_beats_left(&r) == 1);
+    assert(beam_rhythm_beats_left(&r) == BEAM_BEAT_COUNT - BEAM_WIN_HITS);
 
-    // Never touching the final beat must not throw away four clean beats.
-    beam_rhythm_expire(&r, 7600);
+    // Never touching the remaining beats must not throw away three clean hits.
+    beam_rhythm_expire(&r, 8400);
     assert(beam_rhythm_beats_left(&r) == 0);
-    assert(beam_rhythm_clean(&r) == 4);
+    assert(beam_rhythm_clean(&r) == BEAM_WIN_HITS);
     assert(beam_rhythm_won(&r));
 }
 
@@ -160,7 +161,7 @@ int main(void)
     test_perfect_run_wins();
     test_count_in_presses_are_ignored();
     test_one_miss_still_wins();
-    test_two_misses_lose();
+    test_three_misses_lose();
     test_expire_spends_untouched_beats();
     test_decay();
     test_extra_presses_bleed_force();

@@ -2,7 +2,10 @@
 
 #include <stddef.h>
 
-static const uint16_t BEAT_MS[BEAM_BEAT_COUNT] = {3000, 4000, 5000, 6000, 7000};
+static uint32_t beat_time(uint8_t index)
+{
+    return (uint32_t)BEAM_LEAD_IN_MS + (uint32_t)index * BEAM_BEAT_INTERVAL_MS;
+}
 
 static uint8_t clamp_force(int32_t force)
 {
@@ -37,7 +40,7 @@ beam_judge_t beam_rhythm_press(beam_rhythm_t *rhythm, uint32_t elapsed_ms)
     }
 
     const uint8_t index = rhythm->next_beat;
-    const int32_t beat = (int32_t)BEAT_MS[index];
+    const int32_t beat = (int32_t)beat_time(index);
     const int32_t delta = (int32_t)elapsed_ms - beat;
     const int32_t distance = delta < 0 ? -delta : delta;
 
@@ -117,7 +120,7 @@ uint32_t beam_rhythm_next_beat_ms(const beam_rhythm_t *rhythm)
     if (rhythm->next_beat >= BEAM_BEAT_COUNT) {
         return UINT32_MAX;
     }
-    return BEAT_MS[rhythm->next_beat];
+    return beat_time(rhythm->next_beat);
 }
 
 uint32_t beam_rhythm_beat_ms(uint8_t index)
@@ -125,7 +128,7 @@ uint32_t beam_rhythm_beat_ms(uint8_t index)
     if (index >= BEAM_BEAT_COUNT) {
         return UINT32_MAX;
     }
-    return BEAT_MS[index];
+    return beat_time(index);
 }
 
 beam_judge_t beam_rhythm_judge(const beam_rhythm_t *rhythm, uint8_t index)

@@ -15,9 +15,9 @@
 #define BATTLE_ATTACK_MS 520
 #define BATTLE_ENEMY_MS 760
 #define BATTLE_GUARD_MS 1100
-// Three-second count-in plus five one-second beats, with a short tail after the
+// Three-second count-in plus five 1.2-second beats, with a short tail after the
 // final beat so the last marker can leave the track.
-#define BATTLE_BEAM_MS 7600
+#define BATTLE_BEAM_MS 8400
 #define BATTLE_CLEAR_MS 1200
 
 typedef enum {
