@@ -298,8 +298,8 @@ static struct {
     // when the value is unchanged, so only push changed values.
     int16_t ui_monster_hp;
     int16_t ui_gauge;
-    int16_t ui_timer_value;
-    int16_t ui_timer_total;
+    int32_t ui_timer_value;
+    int32_t ui_timer_total;
     uint32_t ui_timer_color;
     uint8_t row_sig[MATH_QUESTION_OPTION_COUNT];
     int16_t row_value[MATH_QUESTION_OPTION_COUNT];
@@ -534,7 +534,8 @@ static void record_mistake(void)
 // first, then anything else the pool holds.
 static void prepare_review_view(void)
 {
-    const uint8_t tier = campaign_stage(s_app.battle.stage)->math_stage;
+    const uint8_t tier =
+        campaign_math_stage(s_app.battle.stage, s_app.battle.difficulty);
     s_app.review_view_count =
         review_store_collect(&s_app.review, s_app.battle.stage, tier,
                              s_app.review_view, REVIEW_VIEW_MAX);
@@ -1163,15 +1164,13 @@ static void refresh_battle_texts(void)
         label_color(s_app.battle_ui.hint, COL_DIM);
     }
 
-    const int16_t total = (int16_t)(battle->question_ms > 0
-                                        ? battle->question_ms
-                                        : 1);
+    const int32_t total = battle->question_ms > 0 ? battle->question_ms : 1;
     const int32_t remain = battle->question_remaining_ms;
     if (total != s_app.ui_timer_total) {
         s_app.ui_timer_total = total;
         lv_bar_set_range(s_app.battle_ui.timer, 0, total);
     }
-    const int16_t timer_value = (int16_t)(remain > 0 ? remain : 0);
+    const int32_t timer_value = remain > 0 ? remain : 0;
     if (timer_value != s_app.ui_timer_value) {
         s_app.ui_timer_value = timer_value;
         lv_bar_set_value(s_app.battle_ui.timer, timer_value, LV_ANIM_OFF);
@@ -2388,7 +2387,7 @@ static void begin_battle(uint8_t stage, uint16_t carry_hp, int32_t carry_score)
     // Wrong answers come back as the 2nd and 5th question of the round. Only
     // questions at or below this stage's math tier are eligible.
     review_record_t picks[BATTLE_REVIEW_SLOTS];
-    const uint8_t tier = campaign_stage(stage)->math_stage;
+    const uint8_t tier = campaign_math_stage(stage, s_app.difficulty);
     const uint8_t count =
         review_store_collect(&s_app.review, stage, tier, picks,
                              BATTLE_REVIEW_SLOTS);

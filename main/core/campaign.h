@@ -51,6 +51,9 @@ typedef struct {
     int16_t time_bonus_ms;
     uint8_t hero_hp;
     int8_t monster_hp_delta;
+    // Shifts the curriculum tier per difficulty. 星光 runs one tier easier so
+    // the first difficulty never jumps straight into 100以内 regrouping.
+    int8_t math_stage_delta;
     uint8_t crit_window;
 } difficulty_def_t;
 
@@ -59,6 +62,8 @@ const stage_def_t *campaign_stage(uint8_t index);
 const difficulty_def_t *campaign_difficulty(uint8_t index);
 
 uint16_t campaign_question_ms(uint8_t stage, uint8_t difficulty, uint8_t hero);
+// Curriculum tier (1..4) actually used for a stage on this difficulty.
+uint8_t campaign_math_stage(uint8_t stage, uint8_t difficulty);
 uint8_t campaign_hero_hp(uint8_t difficulty);
 uint8_t campaign_monster_hp(uint8_t stage, uint8_t difficulty);
 uint8_t campaign_crit_window(uint8_t difficulty, uint8_t hero);

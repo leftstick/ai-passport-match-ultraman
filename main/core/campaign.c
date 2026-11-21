@@ -47,12 +47,12 @@ static const stage_def_t STAGES[CAMPAIGN_STAGE_COUNT] = {
 };
 
 static const difficulty_def_t DIFFICULTIES[CAMPAIGN_DIFFICULTY_COUNT] = {
-    { .name = "星光", .detail = "时间 +1.5秒 · 5颗心", .time_bonus_ms = 1500,
-      .hero_hp = 5, .monster_hp_delta = -1, .crit_window = 50 },
+    { .name = "星光", .detail = "时间 +31.5秒 · 5颗心 · 数学 -1档", .time_bonus_ms = 31500,
+      .hero_hp = 5, .monster_hp_delta = -1, .math_stage_delta = -1, .crit_window = 50 },
     { .name = "烈焰", .detail = "标准节奏 · 4颗心", .time_bonus_ms = 0,
-      .hero_hp = 4, .monster_hp_delta = 0, .crit_window = 40 },
+      .hero_hp = 4, .monster_hp_delta = 0, .math_stage_delta = 0, .crit_window = 40 },
     { .name = "究极", .detail = "时间 -1秒 · 3颗心", .time_bonus_ms = -1000,
-      .hero_hp = 3, .monster_hp_delta = 1, .crit_window = 32 },
+      .hero_hp = 3, .monster_hp_delta = 1, .math_stage_delta = 0, .crit_window = 32 },
 };
 
 const hero_def_t *campaign_hero(uint8_t index)
@@ -93,10 +93,23 @@ uint16_t campaign_question_ms(uint8_t stage, uint8_t difficulty, uint8_t hero)
     if (ms < 2500) {
         ms = 2500;
     }
-    if (ms > 12000) {
-        ms = 12000;
+    if (ms > 45000) {
+        ms = 45000;
     }
     return (uint16_t)ms;
+}
+
+uint8_t campaign_math_stage(uint8_t stage, uint8_t difficulty)
+{
+    int tier = (int)campaign_stage(stage)->math_stage +
+               (int)campaign_difficulty(difficulty)->math_stage_delta;
+    if (tier < 1) {
+        tier = 1;
+    }
+    if (tier > 4) {
+        tier = 4;
+    }
+    return (uint8_t)tier;
 }
 
 uint8_t campaign_hero_hp(uint8_t difficulty)

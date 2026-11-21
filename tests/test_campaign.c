@@ -40,10 +40,24 @@ static void test_content(void)
 
 static void test_clamps(void)
 {
-    assert(campaign_question_ms(0, 0, 0) == 9500);
-    assert(campaign_question_ms(0, 0, 2) == 10300);
+    assert(campaign_question_ms(0, 0, 0) == 39500);
+    assert(campaign_question_ms(0, 0, 2) == 40300);
+    assert(campaign_question_ms(7, 0, 0) == 36700);
     assert(campaign_question_ms(7, 2, 0) == 4200);
     assert(campaign_question_ms(0, 2, 0) == 7000);
+
+    // 星光 runs one curriculum tier lower, clamped to tier 1 at the start.
+    assert(campaign_math_stage(0, 0) == 1);
+    assert(campaign_math_stage(2, 0) == 1);
+    assert(campaign_math_stage(4, 0) == 2);
+    assert(campaign_math_stage(6, 0) == 3);
+    assert(campaign_math_stage(7, 0) == 3);
+    assert(campaign_math_stage(0, 1) == 1);
+    assert(campaign_math_stage(4, 1) == 3);
+    assert(campaign_math_stage(7, 1) == 4);
+    assert(campaign_math_stage(7, 2) == 4);
+    // Out-of-range difficulty falls back to 星光, so the tier drops with it.
+    assert(campaign_math_stage(7, 9) == 3);
 
     assert(campaign_hero_hp(0) == 5);
     assert(campaign_hero_hp(1) == 4);

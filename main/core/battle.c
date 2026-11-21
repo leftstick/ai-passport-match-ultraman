@@ -3,6 +3,10 @@
 #include <stddef.h>
 #include <string.h>
 
+// Speed bonus is normalised against the question clock so the long 星光 timer
+// does not inflate every answer's score.
+#define BATTLE_SPEED_BONUS_MAX 80
+
 static uint32_t rng_range(math_rng_t *rng, uint32_t low, uint32_t high)
 {
     if (high <= low) {
@@ -69,8 +73,8 @@ static uint16_t current_question_ms(const battle_t *battle)
     if (ms < 2000) {
         ms = 2000;
     }
-    if (ms > 15000) {
-        ms = 15000;
+    if (ms > 46000) {
+        ms = 46000;
     }
     return (uint16_t)ms;
 }
@@ -98,7 +102,7 @@ static void next_question(battle_t *battle)
         battle->current_review = true;
     } else {
         math_question_generate(&battle->question,
-                               campaign_stage(battle->stage)->math_stage,
+                               campaign_math_stage(battle->stage, battle->difficulty),
                                battle->assist_active, &battle->rng,
                                battle->history, battle->history_count);
         battle->current_review = false;
@@ -340,8 +344,12 @@ battle_event_t battle_confirm(battle_t *battle)
             }
             battle->correct_count++;
             battle->miss_streak = 0;
-            int32_t gain = 100 + (int32_t)battle->combo * 20 +
-                           battle->question_remaining_ms / 100;
+            int32_t speed_bonus = 0;
+            if (battle->question_ms > 0) {
+                speed_bonus = battle->question_remaining_ms *
+                              BATTLE_SPEED_BONUS_MAX / battle->question_ms;
+            }
+            int32_t gain = 100 + (int32_t)battle->combo * 20 + speed_bonus;
             if (battle->current_review) {
                 // Reviews deliberately pay more: getting an old mistake right
                 // is the behaviour the loop wants to reinforce.

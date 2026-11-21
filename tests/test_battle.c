@@ -218,6 +218,25 @@ static void test_adaptive_assist_and_last_stand(void)
     assert(b.question_ms == 6800 * 9 / 10 + 2000 + 1000);
 }
 
+static void test_star_difficulty_easing(void)
+{
+    battle_t star;
+    battle_start(&star, 4, 0, 0, 9090);
+    // 星光 adds 31.5 s to the clock and drops one curriculum tier.
+    assert(star.question_ms == 6200 + 31500);
+    assert(star.question.math_stage == 2);
+    assert(star.hero_hp == 5);
+
+    battle_t flame;
+    battle_start(&flame, 4, 1, 0, 9090);
+    assert(flame.question_ms == 6200);
+    assert(flame.question.math_stage == 3);
+
+    // The long clock must not inflate the per-answer speed bonus.
+    answer_correct(&star);
+    assert(star.score == 200);  // 100 base + 20 combo + 80 speed cap
+}
+
 static void test_shield_hero(void)
 {
     battle_t b;
@@ -699,8 +718,9 @@ static void test_review_injection_and_bonus(void)
 
     const int32_t before = b.score;
     answer_correct(&b);
-    const int32_t expected =
-        (100 + (int32_t)b.combo * 20 + b.question_remaining_ms / 100) * 3 / 2;
+    const int32_t speed =
+        b.question_remaining_ms * 80 / b.question_ms;
+    const int32_t expected = (100 + (int32_t)b.combo * 20 + speed) * 3 / 2;
     assert(b.score - before == expected);
 
     // Two more exchanges bring the fifth question, which carries review two.
@@ -748,8 +768,9 @@ static void test_score_bonus(void)
 
     const int32_t before = b.score;
     answer_correct(&b);
-    const int32_t base =
-        100 + (int32_t)b.combo * 20 + b.question_remaining_ms / 100;
+    const int32_t speed =
+        b.question_remaining_ms * 80 / b.question_ms;
+    const int32_t base = 100 + (int32_t)b.combo * 20 + speed;
     assert(b.score - before == base + base * 20 / 100);
 
     // battle_start clears the bonus for the next round.
@@ -798,6 +819,7 @@ int main(void)
     test_red_hero_perfect_damage();
     test_wrong_and_timeout();
     test_adaptive_assist_and_last_stand();
+    test_star_difficulty_easing();
     test_shield_hero();
     test_red_crit_damage();
     test_hint();
