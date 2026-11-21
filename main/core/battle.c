@@ -503,6 +503,9 @@ battle_event_t battle_tick(battle_t *battle, uint32_t elapsed_ms)
             return BATTLE_EV_NONE;
         }
         battle->phase_ms = 0;
+        // A beat the player never touched is a miss, so a duel that already
+        // landed enough clean beats still resolves as a win at the timeout.
+        beam_rhythm_expire(&battle->beam, BATTLE_BEAM_MS);
         if (beam_rhythm_won(&battle->beam)) {
             battle->stars = calc_stars(battle);
             battle->score += 800 + (int32_t)battle->hero_hp * 100;
@@ -717,6 +720,21 @@ uint32_t battle_beam_next_beat_ms(const battle_t *battle)
 uint32_t battle_beam_beat_ms(uint8_t index)
 {
     return beam_rhythm_beat_ms(index);
+}
+
+beam_judge_t battle_beam_judge(const battle_t *battle, uint8_t index)
+{
+    return beam_rhythm_judge(&battle->beam, index);
+}
+
+uint8_t battle_beam_clean(const battle_t *battle)
+{
+    return beam_rhythm_clean(&battle->beam);
+}
+
+uint8_t battle_beam_goal(const battle_t *battle)
+{
+    return beam_rhythm_goal(&battle->beam);
 }
 
 uint8_t battle_ultimate_steps(const battle_t *battle)

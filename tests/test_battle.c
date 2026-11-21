@@ -517,31 +517,57 @@ static void test_beam_force_decay_and_hit_window(void)
 {
     battle_t b;
     enter_boss_beam(&b);
-    assert(beam_reach_and_press(&b, 500) == BATTLE_EV_BEAM_PERFECT);
+    assert(beam_reach_and_press(&b, 3000) == BATTLE_EV_BEAM_PERFECT);
     assert(battle_beam_force(&b) == 20);
-    // 600 ms later the second perfect beat lands after one decay tick.
-    assert(beam_reach_and_press(&b, 1100) == BATTLE_EV_BEAM_PERFECT);
-    assert(battle_beam_force(&b) == 39);
+    // 1000 ms later the second perfect beat lands after one decay tick.
+    assert(beam_reach_and_press(&b, 4000) == BATTLE_EV_BEAM_PERFECT);
+    assert(battle_beam_force(&b) == 38);
 
-    assert(beam_reach_and_press(&b, 1700) == BATTLE_EV_BEAM_PERFECT);
-    assert(battle_beam_force(&b) == 57);
-    assert(beam_reach_and_press(&b, 2300) == BATTLE_EV_BEAM_PERFECT);
-    assert(battle_beam_force(&b) == 75);
-    assert(beam_reach_and_press(&b, 2900) == BATTLE_EV_BEAM_WIN);
+    assert(beam_reach_and_press(&b, 5000) == BATTLE_EV_BEAM_PERFECT);
+    assert(battle_beam_force(&b) == 56);
+    assert(beam_reach_and_press(&b, 6000) == BATTLE_EV_BEAM_PERFECT);
+    assert(battle_beam_force(&b) == 74);
+    assert(beam_reach_and_press(&b, 7000) == BATTLE_EV_BEAM_WIN);
 }
 
-static void test_beam_miss_and_four_hits_lose(void)
+static void test_beam_four_hits_one_miss_wins(void)
 {
     battle_t b;
     enter_boss_beam(&b);
-    // 100 ms late is still a hit, 300 ms late is a miss.
-    assert(beam_reach_and_press(&b, 600) == BATTLE_EV_BEAM_HIT);
-    assert(beam_reach_and_press(&b, 1200) == BATTLE_EV_BEAM_HIT);
-    assert(beam_reach_and_press(&b, 1800) == BATTLE_EV_BEAM_HIT);
-    assert(beam_reach_and_press(&b, 2400) == BATTLE_EV_BEAM_HIT);
-    assert(beam_reach_and_press(&b, 2600) == BATTLE_EV_BEAM_LOSE);
+    // 150 ms late is still a hit; 500 ms late is a miss.
+    assert(beam_reach_and_press(&b, 3150) == BATTLE_EV_BEAM_HIT);
+    assert(beam_reach_and_press(&b, 4150) == BATTLE_EV_BEAM_HIT);
+    assert(beam_reach_and_press(&b, 5150) == BATTLE_EV_BEAM_HIT);
+    assert(beam_reach_and_press(&b, 6150) == BATTLE_EV_BEAM_HIT);
+    assert(beam_reach_and_press(&b, 7500) == BATTLE_EV_BEAM_WIN);
+    assert(b.phase == BATTLE_PHASE_CLEAR);
+}
+
+static void test_beam_two_misses_lose(void)
+{
+    battle_t b;
+    enter_boss_beam(&b);
+    assert(beam_reach_and_press(&b, 3500) == BATTLE_EV_BEAM_MISS);
+    assert(beam_reach_and_press(&b, 4500) == BATTLE_EV_BEAM_MISS);
+    assert(beam_reach_and_press(&b, 5000) == BATTLE_EV_BEAM_PERFECT);
+    assert(beam_reach_and_press(&b, 6000) == BATTLE_EV_BEAM_PERFECT);
+    assert(beam_reach_and_press(&b, 7000) == BATTLE_EV_BEAM_LOSE);
     assert(b.phase == BATTLE_PHASE_QUESTION);
     assert(b.monster_hp == 2);
+}
+
+static void test_beam_timeout_keeps_four_hits(void)
+{
+    battle_t b;
+    enter_boss_beam(&b);
+    for (uint8_t i = 0; i < 4; i++) {
+        assert(beam_reach_and_press(&b, (uint16_t)battle_beam_beat_ms(i)) ==
+               BATTLE_EV_BEAM_PERFECT);
+    }
+    // Let the timer run out instead of touching the fifth beat: four clean
+    // beats already satisfy the win condition.
+    assert(battle_tick(&b, BATTLE_BEAM_MS - 6000) == BATTLE_EV_BEAM_WIN);
+    assert(b.phase == BATTLE_PHASE_CLEAR);
 }
 
 static void test_blue_ultimate_feeds_beam_start_force(void)
@@ -835,7 +861,9 @@ int main(void)
     test_boss_beam_five_perfect_beats();
     test_boss_beam_lose();
     test_beam_force_decay_and_hit_window();
-    test_beam_miss_and_four_hits_lose();
+    test_beam_four_hits_one_miss_wins();
+    test_beam_two_misses_lose();
+    test_beam_timeout_keeps_four_hits();
     test_blue_ultimate_feeds_beam_start_force();
     test_guard_qte();
     test_armor_break_stage();

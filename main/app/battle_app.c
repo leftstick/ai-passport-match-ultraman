@@ -78,6 +78,13 @@ static const char *TAG = "battle_app";
 #define HP_TWEEN_X10_STEP 3
 #define GAUGE_TWEEN_X10_STEP 10
 
+// The beam marker sweeps across the gold band so the beat is visible instead
+// of only being audible. The hit window straddles the band centre.
+#define BEAM_SWEEP_MS 450
+#define BEAM_ZONE_LEFT 21
+#define BEAM_ZONE_WIDTH 58
+#define BEAM_CUE_COUNT (BEAM_BEAT_COUNT + 2)
+
 // The core anim enums are intentionally ordered like the sprite enums. Keep
 // them pinned together so a future pose insertion fails at compile time.
 _Static_assert((int)ANIM_POSE_IDLE == (int)SPRITE_POSE_IDLE, "hero pose order");
@@ -206,6 +213,7 @@ typedef struct {
     lv_obj_t *crit_marker;
     lv_obj_t *beam_track;
     lv_obj_t *beam_fill;
+    lv_obj_t *beam_pip[BEAM_BEAT_COUNT];
     lv_obj_t *beam_glow;
     lv_obj_t *beam_core;
     lv_obj_t *flash;
@@ -316,6 +324,9 @@ static struct {
     int16_t ui_crit_left;
     int16_t ui_crit_width;
     int16_t ui_beam_fill;
+    int16_t ui_beam_pips;
+    bool ui_pips_visible;
+    uint8_t beam_cue_next;
 } s_app;
 
 static volatile bool s_save_pending;
@@ -1121,8 +1132,11 @@ static void refresh_battle_texts(void)
         break;
     case BATTLE_PHASE_BEAM: {
         const int beats = (int)battle_beam_beats_left(battle);
-        if (beats > 0) {
-            snprintf(buf, sizeof(buf), "跟着节拍按OK · 还剩%d拍", beats);
+        if (battle_beam_elapsed_ms(battle) + BEAM_SWEEP_MS <
+            battle_beam_beat_ms(0)) {
+            hint = "准备!听到滴声就按OK";
+        } else if (beats > 0) {
+            snprintf(buf, sizeof(buf), "还剩%d拍 · 金色区按OK", beats);
             hint = buf;
         } else {
             hint = "光线对决结算!";
@@ -1220,7 +1234,7 @@ static void refresh_battle_texts(void)
         }
         label_color(s_app.battle_ui.footer, COL_GOLD);
     } else if (battle->phase == BATTLE_PHASE_BEAM) {
-        label_set(s_app.battle_ui.footer, "跟着5拍节奏 · 按OK");
+        label_set(s_app.battle_ui.footer, "听到滴声按一下OK");
         label_color(s_app.battle_ui.footer, COL_DANGER);
     } else if (battle->phase == BATTLE_PHASE_CRITICAL) {
         label_set(s_app.battle_ui.footer, "看准金色区域,按下OK");
@@ -1334,9 +1348,55 @@ static void set_action_zone(int left_pct, int width_pct)
     }
 }
 
+static void show_beam_pips(bool show)
+{
+    if (s_app.ui_pips_visible == show) {
+        return;
+    }
+    s_app.ui_pips_visible = show;
+    for (int i = 0; i < BEAM_BEAT_COUNT; i++) {
+        set_hidden(s_app.battle_ui.beam_pip[i], !show);
+    }
+}
+
+static void refresh_beam_pips(const battle_t *battle)
+{
+    const int next = BEAM_BEAT_COUNT - (int)battle_beam_beats_left(battle);
+    uint16_t sig = 0;
+    for (int i = 0; i < BEAM_BEAT_COUNT; i++) {
+        const uint8_t judge = (uint8_t)battle_beam_judge(battle, (uint8_t)i);
+        uint8_t state = 0;  // pending
+        if (judge == BEAM_JUDGE_PERFECT) {
+            state = 1;
+        } else if (judge == BEAM_JUDGE_HIT) {
+            state = 2;
+        } else if (judge == BEAM_JUDGE_MISS) {
+            state = 3;
+        } else if (i == next) {
+            state = 4;
+        }
+        sig |= (uint16_t)(state << (i * 3));
+    }
+    if ((int16_t)sig == s_app.ui_beam_pips) {
+        return;
+    }
+    s_app.ui_beam_pips = (int16_t)sig;
+    static const uint32_t PIP_COLORS[5] = {COL_EDGE, 0xFFF3B0, COL_OK,
+                                           COL_DANGER, COL_GOLD};
+    for (int i = 0; i < BEAM_BEAT_COUNT; i++) {
+        const uint8_t state = (uint8_t)((sig >> (i * 3)) & 0x7u);
+        lv_obj_set_style_bg_color(s_app.battle_ui.beam_pip[i],
+                                  lv_color_hex(PIP_COLORS[state]), 0);
+    }
+}
+
 static void refresh_battle_action(void)
 {
     battle_t *battle = &s_app.battle;
+
+    if (battle->phase != BATTLE_PHASE_BEAM) {
+        show_beam_pips(false);
+    }
 
     if (battle->phase == BATTLE_PHASE_CRITICAL) {
         label_set(s_app.battle_ui.action_title, "暴击时刻!");
@@ -1418,24 +1478,54 @@ static void refresh_battle_action(void)
     if (battle->phase == BATTLE_PHASE_BEAM) {
         label_set(s_app.battle_ui.action_title, "光线对决!");
         label_color(s_app.battle_ui.action_title, COL_DANGER);
+
+        const uint32_t elapsed = battle_beam_elapsed_ms(battle);
+        const uint32_t first_beat = battle_beam_beat_ms(0);
         const int beats = (int)battle_beam_beats_left(battle);
         char sub[48];
-        if (beats > 0) {
-            snprintf(sub, sizeof(sub), "还剩 %d 拍 · 力度 %d", beats,
-                     (int)battle_beam_force(battle));
+        if (elapsed + BEAM_SWEEP_MS < first_beat) {
+            // Count the player in before the marker reaches the track.
+            const uint32_t until = first_beat - elapsed - BEAM_SWEEP_MS;
+            snprintf(sub, sizeof(sub), "准备 %u",
+                     (unsigned)((until + 999u) / 1000u));
+        } else if (beats > 0) {
+            snprintf(sub, sizeof(sub), "已接 %d/%d 拍 · 还剩 %d",
+                     (int)battle_beam_clean(battle),
+                     (int)battle_beam_goal(battle), beats);
         } else {
-            snprintf(sub, sizeof(sub), "力度 %d",
-                     (int)battle_beam_force(battle));
+            snprintf(sub, sizeof(sub), "已接 %d/%d 拍",
+                     (int)battle_beam_clean(battle),
+                     (int)battle_beam_goal(battle));
         }
         label_set(s_app.battle_ui.action_sub, sub);
-        set_hidden(s_app.battle_ui.crit_track, true);
-        set_hidden(s_app.battle_ui.crit_marker, true);
-        set_hidden(s_app.battle_ui.beam_track, false);
-        const int16_t fill = (int16_t)(battle_beam_force(battle) * 160 / 100);
-        if (fill != s_app.ui_beam_fill) {
-            s_app.ui_beam_fill = fill;
-            lv_obj_set_size(s_app.battle_ui.beam_fill, fill, 6);
+
+        // Reuse the critical bar: one gold band, one marker per beat, so the
+        // beam uses the same "press when the marker crosses the gold" rule the
+        // player already learned.
+        set_hidden(s_app.battle_ui.crit_track, false);
+        set_hidden(s_app.battle_ui.crit_marker, false);
+        set_hidden(s_app.battle_ui.beam_track, true);
+        set_action_zone(BEAM_ZONE_LEFT, BEAM_ZONE_WIDTH);
+
+        const uint32_t next = battle_beam_next_beat_ms(battle);
+        int marker = 50;
+        if (next != UINT32_MAX) {
+            const int32_t start = (int32_t)next - BEAM_SWEEP_MS;
+            const int32_t span = BEAM_SWEEP_MS * 2;
+            int32_t offset = (int32_t)elapsed - start;
+            if (offset < 0) {
+                offset = 0;
+            }
+            if (offset > span) {
+                offset = span;
+            }
+            marker = (int)(offset * 100 / span);
         }
+        lv_obj_set_pos(s_app.battle_ui.crit_marker,
+                       14 + marker * 200 / 100 - 2, 32);
+
+        show_beam_pips(true);
+        refresh_beam_pips(battle);
         return;
     }
 }
@@ -1987,7 +2077,7 @@ static void build_battle(void)
     set_hidden(ui->action, true);
     ui->action_title = make_center(ui->action, 0, 6, ACTION_W, "", &app_font_20,
                                    COL_GOLD);
-    ui->action_sub = make_center(ui->action, 0, 64, ACTION_W, "", &app_font_12,
+    ui->action_sub = make_center(ui->action, 0, 68, ACTION_W, "", &app_font_12,
                                  COL_DIM);
 
     ui->crit_track = make_panel(ui->action, 14, 38, 200, 14, COL_TILE, 7);
@@ -1998,6 +2088,14 @@ static void build_battle(void)
 
     ui->beam_track = make_panel(ui->action, 34, 40, 160, 10, COL_TILE, 5);
     ui->beam_fill = make_panel(ui->beam_track, 0, 2, 0, 6, COL_DANGER, 3);
+
+    // Five dots mirror the five beats: gold marks the beat being played,
+    // green a clean hit, red a miss.
+    for (int i = 0; i < BEAM_BEAT_COUNT; i++) {
+        ui->beam_pip[i] = make_panel(ui->action, 70 + i * 20, 55, 8, 8,
+                                     COL_EDGE, 4);
+        set_hidden(ui->beam_pip[i], true);
+    }
 
     for (int i = 0; i < POPUP_COUNT; i++) {
         ui->popup[i] = make_center(ui->arena, 0, 0, 54, "", &app_font_20,
@@ -2054,6 +2152,9 @@ static void build_battle(void)
     s_app.ui_crit_left = -1;
     s_app.ui_crit_width = -1;
     s_app.ui_beam_fill = -1;
+    s_app.ui_beam_pips = -1;
+    s_app.ui_pips_visible = false;
+    s_app.beam_cue_next = 0;
 
     refresh_battle();
 }
@@ -2670,7 +2771,8 @@ static void handle_battle_event(battle_event_t event)
         break;
     case BATTLE_EV_BEAM_START:
         audio_player_play(SFX_BEAM);
-        set_notice("踩准节拍点确定,推回光线!");
+        s_app.beam_cue_next = 0;
+        s_app.ui_beam_pips = -1;
         break;
     case BATTLE_EV_BEAM_PERFECT:
         audio_player_play(SFX_CRITICAL);
@@ -2709,6 +2811,34 @@ static void handle_battle_event(battle_event_t event)
 
     s_app.hero_hp_seen = battle->hero_hp;
     s_app.monster_hp_seen = battle->monster_hp;
+}
+
+// Metronome for the beam duel: two count-in ticks, then one tick on every
+// beat, so the rhythm is audible while the player watches the marker.
+static uint32_t beam_cue_ms(uint8_t index)
+{
+    if (index < 2) {
+        return (uint32_t)((int)BEAM_LEAD_IN_MS -
+                          2 * BEAM_BEAT_INTERVAL_MS +
+                          index * BEAM_BEAT_INTERVAL_MS);
+    }
+    return battle_beam_beat_ms((uint8_t)(index - 2));
+}
+
+static void tick_beam_cues(void)
+{
+    if (s_app.battle.phase != BATTLE_PHASE_BEAM) {
+        return;
+    }
+    const uint32_t elapsed = battle_beam_elapsed_ms(&s_app.battle);
+    while (s_app.beam_cue_next < BEAM_CUE_COUNT) {
+        const uint32_t cue = beam_cue_ms(s_app.beam_cue_next);
+        if (cue == UINT32_MAX || elapsed < cue) {
+            break;
+        }
+        audio_player_play(SFX_MOVE);
+        s_app.beam_cue_next++;
+    }
 }
 
 static void tick_battle(void)
@@ -2764,6 +2894,7 @@ static void tick_battle(void)
     }
 
     s_app.prev_phase = s_app.battle.phase;
+    tick_beam_cues();
     refresh_battle_with_dt(elapsed);
 }
 

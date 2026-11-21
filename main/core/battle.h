@@ -15,7 +15,9 @@
 #define BATTLE_ATTACK_MS 520
 #define BATTLE_ENEMY_MS 760
 #define BATTLE_GUARD_MS 1100
-#define BATTLE_BEAM_MS 3000
+// Three-second count-in plus five one-second beats, with a short tail after the
+// final beat so the last marker can leave the track.
+#define BATTLE_BEAM_MS 7600
 #define BATTLE_CLEAR_MS 1200
 
 typedef enum {
@@ -171,6 +173,9 @@ uint8_t battle_beam_beats_left(const battle_t *battle);
 uint16_t battle_beam_elapsed_ms(const battle_t *battle);
 uint32_t battle_beam_next_beat_ms(const battle_t *battle);
 uint32_t battle_beam_beat_ms(uint8_t index);
+beam_judge_t battle_beam_judge(const battle_t *battle, uint8_t index);
+uint8_t battle_beam_clean(const battle_t *battle);
+uint8_t battle_beam_goal(const battle_t *battle);
 
 uint8_t battle_ultimate_steps(const battle_t *battle);
 uint8_t battle_ultimate_step(const battle_t *battle);
