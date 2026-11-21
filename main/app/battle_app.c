@@ -1304,9 +1304,9 @@ static const char *ultimate_title(uint8_t hero)
     case 1:
         return "泰罗 · 斯特利姆光线";
     case 2:
-        return "高斯 · 满月光波";
+        return "泰迦 · 光子斯特利姆";
     case 3:
-        return "奥特之王 · 王者闪光";
+        return "泽塔 · 泽斯蒂姆光线";
     case 4:
         return "迪迦 · 泽佩利敖光线";
     default:

@@ -14,8 +14,12 @@ static void test_content(void)
         assert(hero->perk <= HERO_PERK_SHIELD);
     }
     assert(strcmp(campaign_hero(0)->name, "赛罗奥特曼") == 0);
+    assert(strcmp(campaign_hero(2)->name, "泰迦奥特曼·光子地球") == 0);
+    assert(strcmp(campaign_hero(2)->sprite_prefix, "emerald") == 0);
+    assert(strcmp(campaign_hero(3)->name, "泽塔奥特曼·德尔塔天爪") == 0);
+    assert(strcmp(campaign_hero(3)->sprite_prefix, "gold") == 0);
     assert(strcmp(campaign_hero(4)->name, "迪迦奥特曼") == 0);
-    assert(strcmp(campaign_hero(5)->name, "欧布奥特曼·暗耀") == 0);
+    assert(strcmp(campaign_hero(5)->name, "贝利亚奥特曼") == 0);
     assert(strcmp(campaign_hero(5)->sprite_prefix, "dark") == 0);
     assert(campaign_hero(5)->perk == HERO_PERK_CRIT_DAMAGE);
     assert(strcmp(campaign_hero(6)->name, "捷德奥特曼·尊皇") == 0);
