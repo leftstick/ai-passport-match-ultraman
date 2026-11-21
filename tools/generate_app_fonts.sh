@@ -7,6 +7,9 @@
 #
 #   SOURCE_HAN_SANS=/path/to/SourceHanSansSC-Regular.otf tools/generate_app_fonts.sh
 #
+# Noto Sans SC (Regular) is the same Adobe/Google typeface under the same
+# OFL 1.1 licence, so it works as a drop-in fallback.
+#
 # Set LV_FONT_CONV to a local lv_font_conv executable if npx is unavailable.
 set -euo pipefail
 

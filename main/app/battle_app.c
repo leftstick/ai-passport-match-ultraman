@@ -19,8 +19,10 @@
 #include "freertos/task.h"
 #include "lvgl.h"
 #include "nvs.h"
+#include "progress.h"
 #include "review.h"
 #include "sprites.h"
+#include "time_attack.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -105,12 +107,20 @@ _Static_assert((int)ANIM_MONSTER_HURT == (int)SPRITE_MONSTER_HURT, "monster pose
 #define REVIEW_PAGE_SIZE 2
 #define REVIEW_VIEW_MAX 6
 #define GAUNTLET_WAVES 3
+#define SETTINGS_COUNT 5
+#define COLLECTION_PAGES 3
+#define COLLECTION_HERO_CELLS 7
+#define COLLECTION_MONSTER_CELLS 8
+#define COLLECTION_BADGE_CELLS 6
+#define TIME_RESULT_ITEMS 2
 
 typedef enum {
     PAGE_HOME = 0,
     PAGE_STAGES,
     PAGE_BATTLE,
     PAGE_SETTINGS,
+    PAGE_TIME,
+    PAGE_COLLECTION,
 } page_t;
 
 typedef enum {
@@ -134,6 +144,7 @@ typedef enum {
     MODE_CAMPAIGN = 0,
     MODE_ENDLESS,
     MODE_GAUNTLET,
+    MODE_TIME,
     MODE_COUNT,
 } game_mode_t;
 
@@ -185,10 +196,40 @@ typedef struct {
 
 typedef struct {
     lv_obj_t *battery;
-    lv_obj_t *row[4];
-    lv_obj_t *name[4];
-    lv_obj_t *value[4];
+    lv_obj_t *row[SETTINGS_COUNT];
+    lv_obj_t *name[SETTINGS_COUNT];
+    lv_obj_t *value[SETTINGS_COUNT];
 } settings_ui_t;
+
+typedef struct {
+    lv_obj_t *battery;
+    lv_obj_t *timer_text;
+    lv_obj_t *timer_fill;
+    lv_obj_t *score;
+    lv_obj_t *combo;
+    lv_obj_t *hazard;
+    lv_obj_t *question;
+    lv_obj_t *hint;
+    lv_obj_t *row[MATH_QUESTION_OPTION_COUNT];
+    lv_obj_t *row_text[MATH_QUESTION_OPTION_COUNT];
+    lv_obj_t *row_mark[MATH_QUESTION_OPTION_COUNT];
+    lv_obj_t *result;
+    lv_obj_t *result_title;
+    lv_obj_t *result_detail;
+    lv_obj_t *result_note;
+    lv_obj_t *result_opt[TIME_RESULT_ITEMS];
+    lv_obj_t *result_opt_text[TIME_RESULT_ITEMS];
+} time_ui_t;
+
+typedef struct {
+    lv_obj_t *battery;
+    lv_obj_t *tab[COLLECTION_PAGES];
+    lv_obj_t *tab_text[COLLECTION_PAGES];
+    lv_obj_t *cell[COLLECTION_MONSTER_CELLS];
+    lv_obj_t *cell_img[COLLECTION_MONSTER_CELLS];
+    lv_obj_t *cell_title[COLLECTION_MONSTER_CELLS];
+    lv_obj_t *cell_detail[COLLECTION_MONSTER_CELLS];
+} collection_ui_t;
 
 typedef struct {
     lv_obj_t *stage_label;
@@ -259,6 +300,14 @@ static struct {
     uint32_t gauntlet_best;
     uint8_t settings_index;
 
+    progress_t progress;
+    time_attack_t time;
+    bool time_result;
+    uint8_t time_result_index;
+    int64_t time_notice_until_us;
+    char time_notice[48];
+    uint8_t collection_page;
+
     review_store_t review;
     review_record_t review_view[REVIEW_VIEW_MAX];
     uint8_t review_view_count;
@@ -271,6 +320,8 @@ static struct {
     home_ui_t home;
     stages_ui_t stages;
     settings_ui_t settings;
+    time_ui_t time_ui;
+    collection_ui_t collection;
     battle_ui_t battle_ui;
 
     uint8_t overlay_items;
@@ -335,6 +386,9 @@ static struct {
     bool ui_flash_visible;
     int16_t ui_crit_left;
     int16_t ui_crit_width;
+    int16_t ui_time_fill;
+    uint8_t time_row_sig[MATH_QUESTION_OPTION_COUNT];
+    int16_t time_row_value[MATH_QUESTION_OPTION_COUNT];
     int16_t ui_beam_fill;
     int16_t ui_beam_pips;
     bool ui_pips_visible;
@@ -350,6 +404,11 @@ static volatile bool s_save_pending;
 static void set_notice(const char *text);
 static void set_notice_ms(const char *text, int64_t duration_us);
 static void show_tutorial(uint8_t card);
+static void build_collection(void);
+static void tick_time_attack(void);
+static void start_time_attack(void);
+static bool award_badge(uint8_t badge);
+static void finish_time_attack(void);
 
 // ---------------------------------------------------------------------------
 // 基础控件
@@ -450,6 +509,7 @@ static void page_switch(lv_obj_t *scr)
 static void nvs_load(void)
 {
     review_store_init(&s_app.review);
+    progress_init(&s_app.progress);
     nvs_handle_t handle;
     if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle) != ESP_OK) {
         ESP_LOGI(TAG, "暂无存档,使用默认进度");
@@ -489,6 +549,11 @@ static void nvs_load(void)
             review_store_init(&s_app.review);
         }
     }
+    size = sizeof(s_app.progress);
+    if (nvs_get_blob(handle, "progress", &s_app.progress, &size) != ESP_OK ||
+        size != sizeof(s_app.progress)) {
+        progress_init(&s_app.progress);
+    }
     nvs_close(handle);
 }
 
@@ -511,6 +576,8 @@ static void nvs_save(void)
     (void)nvs_set_u32(handle, "gauntlet_best", s_app.gauntlet_best);
     (void)nvs_set_blob(handle, "best", s_app.best, sizeof(s_app.best));
     (void)nvs_set_blob(handle, "review", &s_app.review, sizeof(s_app.review));
+    (void)nvs_set_blob(handle, "progress", &s_app.progress,
+                       sizeof(s_app.progress));
     const esp_err_t err = nvs_commit(handle);
     nvs_close(handle);
     if (err != ESP_OK) {
@@ -543,6 +610,19 @@ static void stage_record_result(void)
     }
     if (stage + 1u < CAMPAIGN_STAGE_COUNT && s_app.unlocked < stage + 1u) {
         s_app.unlocked = (uint8_t)(stage + 1u);
+    }
+    // 徽章按「达成即永久保留」处理,不因之后的重玩而撤销。
+    if (s_app.battle.hero_hp == s_app.battle.hero_hp_max) {
+        (void)award_badge(PROGRESS_BADGE_FLAWLESS);
+    }
+    if (s_app.battle.best_combo >= 8) {
+        (void)award_badge(PROGRESS_BADGE_COMBO);
+    }
+    if (stage + 1u == CAMPAIGN_STAGE_COUNT) {
+        (void)award_badge(PROGRESS_BADGE_ALL_CLEAR);
+    }
+    if (progress_three_star_count(s_app.stars) == CAMPAIGN_STAGE_COUNT) {
+        (void)award_badge(PROGRESS_BADGE_THREE_STAR);
     }
     request_save();
 }
@@ -588,6 +668,8 @@ static const char *mode_title(game_mode_t mode)
         return "无尽";
     case MODE_GAUNTLET:
         return "三连战";
+    case MODE_TIME:
+        return "限时";
     default:
         return "闯关";
     }
@@ -602,6 +684,9 @@ static bool mode_unlocked(game_mode_t mode)
     case MODE_GAUNTLET:
         // Clearing stage 5 unlocks stage 6; the gauntlet starts there.
         return s_app.unlocked >= 5;
+    case MODE_TIME:
+        // Clearing stage 2 unlocks stage 3; time attack opens there.
+        return s_app.unlocked >= 2;
     default:
         return true;
     }
@@ -614,6 +699,8 @@ static const char *mode_lock_hint(game_mode_t mode)
         return "通关第1关解锁 · 长按↑换模式";
     case MODE_GAUNTLET:
         return "通关第5关解锁 · 长按↑换模式";
+    case MODE_TIME:
+        return "通关第2关解锁 · 长按↑换模式";
     default:
         return "长按OK难度 · ↑模式 · ↓设置";
     }
@@ -696,6 +783,12 @@ static void set_battery_labels(void)
     case PAGE_SETTINGS:
         label_set(s_app.settings.battery, buf);
         break;
+    case PAGE_TIME:
+        label_set(s_app.time_ui.battery, buf);
+        break;
+    case PAGE_COLLECTION:
+        label_set(s_app.collection.battery, buf);
+        break;
     default:
         break;
     }
@@ -740,9 +833,19 @@ static void refresh_home(void)
             label_set(s_app.home.mode_info[i], buf);
             label_color(s_app.home.mode_info[i], COL_DIM);
         } else {
-            const uint32_t best = mode == MODE_ENDLESS ? s_app.endless_best
-                                                       : s_app.gauntlet_best;
-            snprintf(buf, sizeof(buf), "高%u", (unsigned)best);
+            uint32_t best = s_app.progress.time_best;
+            if (mode == MODE_ENDLESS) {
+                best = s_app.endless_best;
+            } else if (mode == MODE_GAUNTLET) {
+                best = s_app.gauntlet_best;
+            }
+            // The pill is only 48 px wide; drop the prefix once the number
+            // would wrap onto a second line.
+            if (best < 1000) {
+                snprintf(buf, sizeof(buf), "高%u", (unsigned)best);
+            } else {
+                snprintf(buf, sizeof(buf), "%u", (unsigned)best);
+            }
             label_set(s_app.home.mode_info[i], buf);
             label_color(s_app.home.mode_info[i], COL_ACCENT);
         }
@@ -810,14 +913,14 @@ static void build_home(void)
     s_app.home.diff_detail = make_center(scr, 0, 224, SCREEN_W, "", &app_font_12,
                                          COL_DIM);
 
-    make_label(scr, 10, 246, 30, "模式", &app_font_12, COL_DIM);
+    make_label(scr, 6, 246, 28, "模式", &app_font_12, COL_DIM);
     for (int i = 0; i < MODE_COUNT; i++) {
-        const int x = 40 + i * 66;
-        s_app.home.mode_pill[i] = make_panel(scr, x, 240, 62, 32, COL_TILE, 7);
-        s_app.home.mode_name[i] = make_center(scr, x, 242, 62,
+        const int x = 36 + i * 51;
+        s_app.home.mode_pill[i] = make_panel(scr, x, 240, 48, 32, COL_TILE, 7);
+        s_app.home.mode_name[i] = make_center(scr, x, 242, 48,
                                               mode_title((game_mode_t)i),
                                               &app_font_12, COL_DIM);
-        s_app.home.mode_info[i] = make_center(scr, x, 256, 62, "",
+        s_app.home.mode_info[i] = make_center(scr, x, 256, 48, "",
                                               &app_font_12, COL_DIM);
     }
 
@@ -924,19 +1027,21 @@ static void build_stages(void)
 // ---------------------------------------------------------------------------
 static const char *settings_name(uint8_t index)
 {
-    static const char *const names[] = { "低龄模式", "减弱动态", "音效", "返回" };
-    return index < 4 ? names[index] : "";
+    static const char *const names[] = { "低龄模式", "减弱动态", "音效",
+                                         "收藏图鉴", "返回" };
+    return index < SETTINGS_COUNT ? names[index] : "";
 }
 
 static const char *settings_detail(uint8_t index)
 {
     static const char *const details[] = {
-        "隐藏格挡QTE · 暴击区更宽",
+        "隐藏格挡QTE · 暴击区更宽 · 关闭干扰",
         "关闭震屏和强闪光",
         "战斗音效开关",
+        "英雄、怪兽与徽章进度",
         "回到主界面",
     };
-    return index < 4 ? details[index] : "";
+    return index < SETTINGS_COUNT ? details[index] : "";
 }
 
 static bool settings_value(uint8_t index)
@@ -956,7 +1061,7 @@ static bool settings_value(uint8_t index)
 static void refresh_settings(void)
 {
     if (s_app.page != PAGE_SETTINGS || s_app.root == NULL) return;
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < SETTINGS_COUNT; i++) {
         const bool selected = i == s_app.settings_index;
         lv_obj_set_style_bg_color(s_app.settings.row[i],
                                   lv_color_hex(selected ? COL_TILE_SEL : COL_TILE), 0);
@@ -964,7 +1069,7 @@ static void refresh_settings(void)
         lv_obj_set_style_border_color(s_app.settings.row[i],
                                       lv_color_hex(COL_ACCENT), 0);
         label_color(s_app.settings.name[i], selected ? COL_TEXT : COL_DIM);
-        if (i == 3) {
+        if (i >= 3) {
             label_set(s_app.settings.value[i], ">");
             label_color(s_app.settings.value[i], COL_DIM);
         } else {
@@ -983,23 +1088,27 @@ static void build_settings(void)
     make_label(scr, 8, 5, 150, "设置", &app_font_20, COL_TEXT);
     make_label(scr, 120, 9, 74, "长按OK返回", &app_font_12, COL_DIM);
 
-    for (int i = 0; i < 4; i++) {
-        const int y = 40 + i * 54;
-        s_app.settings.row[i] = make_panel(scr, 6, y, 228, 46, COL_TILE, 8);
-        s_app.settings.name[i] = make_label(s_app.settings.row[i], 10, 5, 150,
+    for (int i = 0; i < SETTINGS_COUNT; i++) {
+        const int y = 36 + i * 44;
+        s_app.settings.row[i] = make_panel(scr, 6, y, 228, 38, COL_TILE, 8);
+        s_app.settings.name[i] = make_label(s_app.settings.row[i], 10, 3, 150,
                                             settings_name((uint8_t)i),
-                                            &app_font_20, COL_TEXT);
-        s_app.settings.value[i] = make_label(s_app.settings.row[i], 184, 8, 34, "",
-                                             &app_font_20, COL_DIM);
+                                            &app_font_14, COL_TEXT);
+        s_app.settings.value[i] = make_label(s_app.settings.row[i], 184, 4, 34, "",
+                                             &app_font_14, COL_DIM);
         lv_obj_set_style_text_align(s_app.settings.value[i], LV_TEXT_ALIGN_RIGHT, 0);
-        make_label(s_app.settings.row[i], 10, 27, 208,
+        make_label(s_app.settings.row[i], 10, 21, 208,
                    settings_detail((uint8_t)i), &app_font_12, COL_DIM);
     }
 
-    char buf[32];
-    snprintf(buf, sizeof(buf), "错题本已记录 %d 题", (int)s_app.review.count);
-    make_center(scr, 0, 266, SCREEN_W, buf, &app_font_12, COL_DIM);
-    make_center(scr, 0, 296, SCREEN_W, "↑↓选择 · OK切换", &app_font_12, COL_DIM);
+    char buf[48];
+    snprintf(buf, sizeof(buf), "错题%d · 英雄%d/%d · 怪兽%d/%d",
+             (int)s_app.review.count,
+             (int)progress_count8(s_app.progress.heroes), PROGRESS_HERO_COUNT,
+             (int)progress_count16(s_app.progress.monsters),
+             PROGRESS_MONSTER_COUNT);
+    make_center(scr, 0, 258, SCREEN_W, buf, &app_font_12, COL_DIM);
+    make_center(scr, 0, 288, SCREEN_W, "↑↓选择 · OK切换", &app_font_12, COL_DIM);
 
     page_switch(scr);
     refresh_settings();
@@ -1016,13 +1125,15 @@ static void leave_settings(void)
 static void handle_settings_key(bsp_btn_t btn, bsp_btn_ev_t event)
 {
     if (event == BSP_BTN_CLICK && btn == BSP_BTN_UP) {
-        s_app.settings_index = (uint8_t)((s_app.settings_index + 3) % 4);
+        s_app.settings_index =
+            (uint8_t)((s_app.settings_index + SETTINGS_COUNT - 1) % SETTINGS_COUNT);
         audio_player_play(SFX_MOVE);
         refresh_settings();
         return;
     }
     if (event == BSP_BTN_CLICK && btn == BSP_BTN_DOWN) {
-        s_app.settings_index = (uint8_t)((s_app.settings_index + 1) % 4);
+        s_app.settings_index =
+            (uint8_t)((s_app.settings_index + 1) % SETTINGS_COUNT);
         audio_player_play(SFX_MOVE);
         refresh_settings();
         return;
@@ -1039,6 +1150,12 @@ static void handle_settings_key(bsp_btn_t btn, bsp_btn_ev_t event)
         } else if (s_app.settings_index == 2) {
             s_app.muted = !s_app.muted;
             audio_player_set_muted(s_app.muted);
+        } else if (s_app.settings_index == 3) {
+            s_app.collection_page = 0;
+            s_app.page = PAGE_COLLECTION;
+            audio_player_play(SFX_CONFIRM);
+            build_collection();
+            return;
         } else {
             leave_settings();
             return;
@@ -1046,6 +1163,504 @@ static void handle_settings_key(bsp_btn_t btn, bsp_btn_ev_t event)
         request_save();
         audio_player_play(SFX_CONFIRM);
         refresh_settings();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 限时猎手
+// ---------------------------------------------------------------------------
+static bool award_badge(uint8_t badge)
+{
+    if (!progress_award(&s_app.progress, badge)) {
+        return false;
+    }
+    request_save();
+    return true;
+}
+
+// 限时页的短提示(换位、解冻、未选答案)只在几百毫秒内压过常规干扰文案。
+static void time_notice(const char *text, int64_t duration_us)
+{
+    snprintf(s_app.time_notice, sizeof(s_app.time_notice), "%s", text);
+    s_app.time_notice_until_us = esp_timer_get_time() + duration_us;
+}
+
+static void refresh_time_result(void)
+{
+    time_ui_t *ui = &s_app.time_ui;
+    if (ui->result == NULL) return;
+    set_hidden(ui->result, !s_app.time_result);
+    if (!s_app.time_result) return;
+
+    char buf[64];
+    label_set(ui->result_title, "时间到!");
+    snprintf(buf, sizeof(buf), "得分 %ld · 最佳 %u\n命中 %d · 最高连击 %d",
+             (long)s_app.time.score,
+             (unsigned)s_app.progress.time_best,
+             (int)s_app.time.correct_count, (int)s_app.time.best_combo);
+    label_set(ui->result_detail, buf);
+    for (int i = 0; i < TIME_RESULT_ITEMS; i++) {
+        const bool selected = i == s_app.time_result_index;
+        lv_obj_set_style_bg_color(ui->result_opt[i],
+                                  lv_color_hex(selected ? COL_TILE_SEL : COL_TILE), 0);
+        lv_obj_set_style_border_width(ui->result_opt[i], selected ? 2 : 0, 0);
+        lv_obj_set_style_border_color(ui->result_opt[i], lv_color_hex(COL_GOLD), 0);
+        label_color(ui->result_opt_text[i], selected ? COL_GOLD : COL_DIM);
+    }
+}
+
+static void refresh_time(void)
+{
+    if (s_app.page != PAGE_TIME || s_app.root == NULL) return;
+    time_ui_t *ui = &s_app.time_ui;
+    const time_attack_t *run = &s_app.time;
+
+    if (run->finished && !s_app.time_result) {
+        // The tick normally reports this first; keep the result path single.
+        finish_time_attack();
+    }
+
+    char buf[64];
+    snprintf(buf, sizeof(buf), "%u.%u", (unsigned)(run->remaining_ms / 1000u),
+             (unsigned)((run->remaining_ms % 1000u) / 100u));
+    label_set(ui->timer_text, buf);
+    label_color(ui->timer_text,
+                run->remaining_ms <= 10000u ? COL_DANGER : COL_ACCENT);
+
+    const int16_t fill =
+        (int16_t)(226u * run->remaining_ms / TIME_ATTACK_MS);
+    if (fill != s_app.ui_time_fill) {
+        s_app.ui_time_fill = fill;
+        lv_obj_set_width(ui->timer_fill, fill);
+        lv_obj_set_style_bg_color(ui->timer_fill,
+                                  lv_color_hex(run->remaining_ms <= 10000u
+                                                   ? COL_DANGER
+                                                   : COL_GOLD), 0);
+    }
+
+    snprintf(buf, sizeof(buf), "得分 %ld", (long)run->score);
+    label_set(ui->score, buf);
+    snprintf(buf, sizeof(buf), "连击 x%u", (unsigned)run->combo);
+    label_set(ui->combo, buf);
+    label_color(ui->combo, run->combo >= TIME_ATTACK_MASK_COMBO ? COL_GOLD : COL_DIM);
+
+    const char *hazard = time_attack_hazard_text(run);
+    const bool notice_live = s_app.time_notice_until_us > esp_timer_get_time();
+    label_set(ui->hazard,
+              notice_live ? s_app.time_notice
+                          : (hazard[0] != '\0' ? hazard
+                                               : "连击越高, 怪兽干扰越强"));
+    label_color(ui->hazard,
+                (notice_live || hazard[0] != '\0') ? COL_GOLD : COL_DIM);
+
+    label_set(ui->question, run->question.text);
+    label_set(ui->hint, run->question.hint);
+
+    const bool feedback = run->phase == TIME_PHASE_FEEDBACK;
+    for (int i = 0; i < MATH_QUESTION_OPTION_COUNT; i++) {
+        const bool masked = time_attack_option_hidden(run, (uint8_t)i);
+        const bool locked = time_attack_option_locked(run, (uint8_t)i);
+        const bool selected = run->phase == TIME_PHASE_QUESTION &&
+                              run->cursor == i;
+        const bool correct = feedback && run->last_correct == i;
+        const bool wrong = feedback && run->last_wrong == i;
+
+        const uint8_t sig = (uint8_t)((selected ? 1u : 0u) |
+                                      (correct ? 2u : 0u) |
+                                      (wrong ? 4u : 0u) |
+                                      (masked ? 8u : 0u) |
+                                      (locked ? 16u : 0u));
+        const int16_t value = run->question.options[i];
+        if (sig == s_app.time_row_sig[i] && value == s_app.time_row_value[i]) {
+            continue;
+        }
+        s_app.time_row_sig[i] = sig;
+        s_app.time_row_value[i] = value;
+
+        if (masked) {
+            label_set(ui->row_text[i], "??");
+        } else {
+            snprintf(buf, sizeof(buf), "%d", (int)run->question.options[i]);
+            label_set(ui->row_text[i], buf);
+        }
+
+        uint32_t bg = COL_TILE;
+        uint32_t fg = COL_TEXT;
+        int border = 0;
+        uint32_t border_color = COL_ACCENT;
+        if (correct) {
+            bg = 0x123B2A;
+            fg = COL_OK;
+            border = 2;
+            border_color = COL_OK;
+        } else if (wrong) {
+            bg = 0x3A1520;
+            fg = COL_DANGER;
+            border = 2;
+            border_color = COL_DANGER;
+        } else if (selected) {
+            bg = COL_TILE_SEL;
+            fg = COL_GOLD;
+            border = 2;
+            border_color = COL_GOLD;
+        } else if (locked) {
+            fg = COL_ACCENT;
+        } else if (masked) {
+            fg = COL_DIM;
+        }
+        lv_obj_set_style_bg_color(ui->row[i], lv_color_hex(bg), 0);
+        lv_obj_set_style_border_width(ui->row[i], border, 0);
+        lv_obj_set_style_border_color(ui->row[i], lv_color_hex(border_color), 0);
+        label_color(ui->row_text[i], fg);
+        set_hidden(ui->row_mark[i], !selected);
+    }
+
+    refresh_time_result();
+}
+
+static void finish_time_attack(void)
+{
+    if (s_app.time_result) return;
+    s_app.time_result = true;
+    s_app.time_result_index = 0;
+
+    const uint32_t score = (uint32_t)(s_app.time.score < 0 ? 0 : s_app.time.score);
+    const bool new_best = progress_record_time(&s_app.progress, score);
+    const bool new_badge =
+        score >= TIME_ATTACK_BADGE_SCORE &&
+        progress_award(&s_app.progress, PROGRESS_BADGE_TIME);
+    request_save();
+    audio_player_play(new_best ? SFX_VICTORY : SFX_DEFEAT);
+
+    char note[64];
+    note[0] = '\0';
+    if (new_best) {
+        snprintf(note, sizeof(note), "新纪录! %s",
+                 new_badge ? "获得徽章:限时猎手" : "");
+    } else if (new_badge) {
+        snprintf(note, sizeof(note), "获得徽章:限时猎手");
+    }
+    label_set(s_app.time_ui.result_note, note);
+    label_color(s_app.time_ui.result_note, COL_GOLD);
+}
+
+static void handle_time_event(time_event_t event)
+{
+    switch (event) {
+    case TIME_EV_MOVED:
+        audio_player_play(SFX_MOVE);
+        break;
+    case TIME_EV_NEED_SELECT:
+        audio_player_play(SFX_MOVE);
+        time_notice("先按↑或↓选答案", 900000LL);
+        break;
+    case TIME_EV_UNLOCKED:
+        audio_player_play(SFX_CRITICAL);
+        time_notice("解冻!再按一次OK作答", 900000LL);
+        break;
+    case TIME_EV_SWAP:
+        audio_player_play(SFX_GROWL);
+        time_notice("怪兽换位!", 1000000LL);
+        break;
+    case TIME_EV_CORRECT:
+        audio_player_play(SFX_CORRECT);
+        break;
+    case TIME_EV_WRONG:
+        audio_player_play(SFX_WRONG);
+        audio_player_play(SFX_GROWL);
+        break;
+    case TIME_EV_FINISHED:
+        finish_time_attack();
+        break;
+    default:
+        break;
+    }
+}
+
+static void build_time(void)
+{
+    lv_obj_t *scr = make_screen();
+    time_ui_t *ui = &s_app.time_ui;
+    memset(ui, 0, sizeof(*ui));
+    s_app.ui_time_fill = -1;
+    for (int i = 0; i < MATH_QUESTION_OPTION_COUNT; i++) {
+        s_app.time_row_sig[i] = 0xFF;
+        s_app.time_row_value[i] = -1;
+    }
+
+    ui->battery = make_label(scr, 194, 6, 40, " --", &app_font_12, COL_DIM);
+    lv_obj_set_style_text_align(ui->battery, LV_TEXT_ALIGN_RIGHT, 0);
+    make_label(scr, 8, 4, 120, "限时猎手", &app_font_20, COL_GOLD);
+    ui->timer_text = make_label(scr, 128, 4, 66, "60.0", &app_font_20, COL_ACCENT);
+    lv_obj_set_style_text_align(ui->timer_text, LV_TEXT_ALIGN_RIGHT, 0);
+
+    lv_obj_t *track = make_panel(scr, 6, 30, 228, 8, COL_EDGE, 4);
+    ui->timer_fill = make_panel(track, 1, 1, 226, 6, COL_GOLD, 3);
+
+    ui->score = make_label(scr, 6, 44, 120, "得分 0", &app_font_14, COL_TEXT);
+    ui->combo = make_label(scr, 116, 44, 118, "连击 x0", &app_font_14, COL_DIM);
+    lv_obj_set_style_text_align(ui->combo, LV_TEXT_ALIGN_RIGHT, 0);
+    ui->hazard = make_center(scr, 0, 64, SCREEN_W, "", &app_font_12, COL_DIM);
+
+    lv_obj_t *board = make_panel(scr, 6, 82, 228, 52, COL_PANEL, 8);
+    lv_obj_set_style_border_width(board, 1, 0);
+    lv_obj_set_style_border_color(board, lv_color_hex(COL_EDGE), 0);
+    ui->question = make_center(board, 0, 4, 228, "", &app_font_20, COL_TEXT);
+    ui->hint = make_center(board, 0, 32, 228, "", &app_font_12, COL_DIM);
+
+    for (int i = 0; i < MATH_QUESTION_OPTION_COUNT; i++) {
+        const int y = 140 + i * 34;
+        ui->row[i] = make_panel(scr, 6, y, 228, 30, COL_TILE, 6);
+        ui->row_text[i] = make_center(ui->row[i], 0, 4, 228, "", &app_font_20,
+                                      COL_TEXT);
+        ui->row_mark[i] = make_panel(ui->row[i], 7, 12, 6, 6, COL_GOLD, 3);
+        set_hidden(ui->row_mark[i], true);
+    }
+
+    make_center(scr, 0, 288, SCREEN_W, "↑↓选择 · OK确定 · 长按OK结束",
+                &app_font_12, COL_DIM);
+
+    ui->result = make_panel(scr, 0, 0, SCREEN_W, SCREEN_H, 0x000000, 0);
+    lv_obj_set_style_bg_opa(ui->result, LV_OPA_70, 0);
+    lv_obj_set_style_border_width(ui->result, 0, 0);
+    lv_obj_t *card = make_panel(ui->result, 20, 64, 200, 192, COL_PANEL, 12);
+    lv_obj_set_style_border_width(card, 2, 0);
+    lv_obj_set_style_border_color(card, lv_color_hex(COL_GOLD), 0);
+    ui->result_title = make_center(card, 0, 12, 200, "", &app_font_20, COL_GOLD);
+    ui->result_detail = make_center(card, 0, 42, 200, "", &app_font_14, COL_TEXT);
+    ui->result_note = make_center(card, 0, 90, 200, "", &app_font_12, COL_GOLD);
+    for (int i = 0; i < TIME_RESULT_ITEMS; i++) {
+        const int y = 112 + i * 34;
+        ui->result_opt[i] = make_panel(card, 16, y, 168, 28, COL_TILE, 6);
+        ui->result_opt_text[i] = make_center(card, 16, y + 4, 168,
+                                             i == 0 ? "再来一次" : "返回主页",
+                                             &app_font_14, COL_DIM);
+    }
+    set_hidden(ui->result, true);
+
+    page_switch(scr);
+    refresh_time();
+    set_battery_labels();
+}
+
+static void start_time_attack(void)
+{
+    s_app.mode = MODE_TIME;
+    s_app.time_result = false;
+    s_app.time_result_index = 0;
+    s_app.time_notice_until_us = 0;
+    s_app.page = PAGE_TIME;
+    s_app.last_tick_us = esp_timer_get_time();
+    // 低龄模式既降一档题目,也关掉烟雾/冰冻/换位。
+    time_attack_start(&s_app.time, (uint32_t)esp_timer_get_time(),
+                      s_app.low_age, !s_app.low_age);
+    build_time();
+    audio_player_play(SFX_CONFIRM);
+}
+
+static void leave_time(void)
+{
+    request_save();
+    s_app.page = PAGE_HOME;
+    build_home();
+    audio_player_play(SFX_CONFIRM);
+}
+
+static void handle_time_key(bsp_btn_t btn, bsp_btn_ev_t event)
+{
+    if (s_app.time_result) {
+        if (event == BSP_BTN_CLICK && (btn == BSP_BTN_UP || btn == BSP_BTN_DOWN)) {
+            s_app.time_result_index =
+                (uint8_t)((s_app.time_result_index + 1) % TIME_RESULT_ITEMS);
+            audio_player_play(SFX_MOVE);
+            refresh_time_result();
+            return;
+        }
+        if (event == BSP_BTN_CLICK && btn == BSP_BTN_OK) {
+            if (s_app.time_result_index == 0) {
+                start_time_attack();
+            } else {
+                leave_time();
+            }
+            return;
+        }
+        if (event == BSP_BTN_LONG && btn == BSP_BTN_OK) {
+            leave_time();
+        }
+        return;
+    }
+
+    if (event == BSP_BTN_LONG && btn == BSP_BTN_OK) {
+        leave_time();
+        return;
+    }
+    if (event == BSP_BTN_CLICK && (btn == BSP_BTN_UP || btn == BSP_BTN_DOWN)) {
+        handle_time_event(time_attack_move(&s_app.time,
+                                           btn == BSP_BTN_UP ? -1 : 1));
+        refresh_time();
+        return;
+    }
+    if (event == BSP_BTN_CLICK && btn == BSP_BTN_OK) {
+        handle_time_event(time_attack_confirm(&s_app.time));
+        refresh_time();
+    }
+}
+
+static void tick_time_attack(void)
+{
+    const int64_t now = esp_timer_get_time();
+    uint32_t elapsed = (uint32_t)((now - s_app.last_tick_us) / 1000);
+    s_app.last_tick_us = now;
+    if (elapsed > 250) {
+        elapsed = 250;
+    }
+    if (elapsed == 0) {
+        elapsed = 1;
+    }
+    const time_event_t event = time_attack_tick(&s_app.time, elapsed);
+    if (event != TIME_EV_NONE) {
+        handle_time_event(event);
+    }
+    if (s_app.page == PAGE_TIME) {
+        refresh_time();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 收藏图鉴
+// ---------------------------------------------------------------------------
+static void collection_tabs(lv_obj_t *scr)
+{
+    static const char *const tabs[COLLECTION_PAGES] = { "英雄", "怪兽", "徽章" };
+    for (int i = 0; i < COLLECTION_PAGES; i++) {
+        const bool selected = i == s_app.collection_page;
+        const int x = 8 + i * 76;
+        s_app.collection.tab[i] = make_panel(scr, x, 30, 72, 20,
+                                             selected ? COL_TILE_SEL : COL_TILE, 6);
+        lv_obj_set_style_border_width(s_app.collection.tab[i], selected ? 2 : 0, 0);
+        lv_obj_set_style_border_color(s_app.collection.tab[i],
+                                      lv_color_hex(COL_ACCENT), 0);
+        s_app.collection.tab_text[i] = make_center(scr, x, 33, 72, tabs[i],
+                                                   &app_font_12,
+                                                   selected ? COL_TEXT : COL_DIM);
+    }
+}
+
+static void build_collection_heroes(lv_obj_t *scr)
+{
+    collection_ui_t *ui = &s_app.collection;
+    for (uint8_t i = 0; i < COLLECTION_HERO_CELLS; i++) {
+        const int y = 52 + i * 35;
+        const bool found = (s_app.progress.heroes & (uint8_t)(1u << i)) != 0;
+        ui->cell[i] = make_panel(scr, 6, y, 228, 33, COL_TILE, 6);
+        ui->cell_img[i] = lv_image_create(ui->cell[i]);
+        lv_image_set_src(ui->cell_img[i], sprites_hero(i, SPRITE_POSE_IDLE));
+        lv_obj_set_pos(ui->cell_img[i], 4, 2);
+        lv_obj_set_size(ui->cell_img[i], 26, 32);
+        if (!found) {
+            lv_obj_set_style_image_opa(ui->cell_img[i], LV_OPA_30, 0);
+        }
+        ui->cell_title[i] = make_label(ui->cell[i], 34, 8, 140,
+                                       found ? campaign_hero(i)->name : "???",
+                                       &app_font_14, found ? COL_TEXT : COL_DIM);
+        ui->cell_detail[i] = make_label(ui->cell[i], 176, 2, 46,
+                                        found ? "已收录" : "未收录",
+                                        &app_font_12,
+                                        found ? COL_OK : COL_DIM);
+        lv_obj_set_style_text_align(ui->cell_detail[i], LV_TEXT_ALIGN_RIGHT, 0);
+    }
+}
+
+static void build_collection_monsters(lv_obj_t *scr)
+{
+    collection_ui_t *ui = &s_app.collection;
+    for (uint8_t i = 0; i < COLLECTION_MONSTER_CELLS; i++) {
+        const int y = 52 + i * 30;
+        const bool found = (s_app.progress.monsters & (uint16_t)(1u << i)) != 0;
+        ui->cell[i] = make_panel(scr, 6, y, 228, 28, COL_TILE, 5);
+        ui->cell_img[i] = lv_image_create(ui->cell[i]);
+        lv_image_set_src(ui->cell_img[i], sprites_monster(i, SPRITE_MONSTER_IDLE));
+        lv_obj_set_pos(ui->cell_img[i], 4, 2);
+        lv_obj_set_size(ui->cell_img[i], 24, 24);
+        if (!found) {
+            lv_obj_set_style_image_opa(ui->cell_img[i], LV_OPA_30, 0);
+        }
+        char name[32];
+        if (found) {
+            snprintf(name, sizeof(name), "%d %s", (int)i + 1,
+                     campaign_stage(i)->monster_name);
+        } else {
+            snprintf(name, sizeof(name), "%d ???", (int)i + 1);
+        }
+        ui->cell_title[i] = make_label(ui->cell[i], 34, 6, 140, name,
+                                       &app_font_12, found ? COL_TEXT : COL_DIM);
+        ui->cell_detail[i] = make_label(ui->cell[i], 176, 4, 46,
+                                        found ? "已遭遇" : "未遭遇",
+                                        &app_font_12,
+                                        found ? COL_OK : COL_DIM);
+        lv_obj_set_style_text_align(ui->cell_detail[i], LV_TEXT_ALIGN_RIGHT, 0);
+    }
+}
+
+static void build_collection_badges(lv_obj_t *scr)
+{
+    collection_ui_t *ui = &s_app.collection;
+    for (uint8_t i = 0; i < COLLECTION_BADGE_CELLS; i++) {
+        const int y = 52 + i * 38;
+        const bool earned = progress_has_badge(&s_app.progress, i);
+        ui->cell[i] = make_panel(scr, 6, y, 228, 36, COL_TILE, 6);
+        ui->cell_title[i] = make_label(ui->cell[i], 10, 3, 150,
+                                       progress_badge_name(i), &app_font_14,
+                                       earned ? COL_GOLD : COL_DIM);
+        ui->cell_detail[i] = make_label(ui->cell[i], 10, 21, 170,
+                                        progress_badge_detail(i), &app_font_12,
+                                        COL_DIM);
+        lv_obj_t *mark = make_label(ui->cell[i], 194, 7, 26, earned ? "★" : "☆",
+                                    &app_font_20, earned ? COL_GOLD : COL_DIM);
+        (void)mark;
+    }
+}
+
+static void build_collection(void)
+{
+    lv_obj_t *scr = make_screen();
+    memset(&s_app.collection, 0, sizeof(s_app.collection));
+
+    s_app.collection.battery = make_label(scr, 194, 6, 40, " --", &app_font_12,
+                                          COL_DIM);
+    lv_obj_set_style_text_align(s_app.collection.battery, LV_TEXT_ALIGN_RIGHT, 0);
+    make_label(scr, 8, 5, 150, "收藏图鉴", &app_font_20, COL_TEXT);
+    collection_tabs(scr);
+
+    if (s_app.collection_page == 0) {
+        build_collection_heroes(scr);
+    } else if (s_app.collection_page == 1) {
+        build_collection_monsters(scr);
+    } else {
+        build_collection_badges(scr);
+    }
+
+    make_center(scr, 0, 300, SCREEN_W, "↑↓切换页 · 长按OK返回", &app_font_12,
+                COL_DIM);
+
+    page_switch(scr);
+    set_battery_labels();
+}
+
+static void handle_collection_key(bsp_btn_t btn, bsp_btn_ev_t event)
+{
+    if (event == BSP_BTN_CLICK && (btn == BSP_BTN_UP || btn == BSP_BTN_DOWN)) {
+        const int delta = btn == BSP_BTN_UP ? COLLECTION_PAGES - 1 : 1;
+        s_app.collection_page =
+            (uint8_t)((s_app.collection_page + delta) % COLLECTION_PAGES);
+        audio_player_play(SFX_MOVE);
+        build_collection();
+        return;
+    }
+    if (event == BSP_BTN_LONG && btn == BSP_BTN_OK) {
+        s_app.page = PAGE_SETTINGS;
+        build_settings();
+        audio_player_play(SFX_CONFIRM);
     }
 }
 
@@ -2514,6 +3129,11 @@ static void begin_battle(uint8_t stage, uint16_t carry_hp, int32_t carry_score)
     }
     s_app.stage = stage;
     s_app.strike_anim = ANIM_HERO_ATTACK;
+    const bool new_hero = progress_mark_hero(&s_app.progress, s_app.hero);
+    const bool new_monster = progress_mark_monster(&s_app.progress, stage);
+    if (new_hero || new_monster) {
+        request_save();
+    }
     battle_start(&s_app.battle, stage, s_app.difficulty, s_app.hero,
                  (uint32_t)esp_timer_get_time() ^ 0x5EED1234u);
     battle_set_low_age(&s_app.battle, s_app.low_age);
@@ -2749,6 +3369,9 @@ static void handle_battle_event(battle_event_t event)
         break;
     case BATTLE_EV_CORRECT:
         audio_player_play(SFX_CORRECT);
+        if (battle->best_combo >= 8) {
+            (void)award_badge(PROGRESS_BADGE_COMBO);
+        }
         if (battle->current_review) {
             const bool removed =
                 review_store_mastered(&s_app.review, &battle->question);
@@ -2861,6 +3484,9 @@ static void handle_battle_event(battle_event_t event)
         s_app.hero_hp_goal = battle->hero_hp;
         if (s_app.mode != MODE_CAMPAIGN) {
             record_run_best();
+        }
+        if (s_app.mode == MODE_ENDLESS && s_app.wave >= 5) {
+            (void)award_badge(PROGRESS_BADGE_ENDLESS);
         }
         prepare_review_view();
         show_overlay(OVERLAY_OVER);
@@ -3046,6 +3672,9 @@ static void run_overlay_action(void)
         destroy_overlay();
         if (index == 0) {
             s_app.wave++;
+            if (s_app.wave >= 5) {
+                (void)award_badge(PROGRESS_BADGE_ENDLESS);
+            }
             uint16_t hp = (uint16_t)(s_app.run_hp + 1u);
             if (hp > s_app.battle.hero_hp_max) {
                 hp = s_app.battle.hero_hp_max;
@@ -3181,6 +3810,8 @@ static void handle_home_key(bsp_btn_t btn, bsp_btn_ev_t event)
             s_app.stage = s_app.unlocked;
             s_app.page = PAGE_STAGES;
             build_stages();
+        } else if (s_app.mode == MODE_TIME) {
+            start_time_attack();
         } else {
             start_run(s_app.mode);
         }
@@ -3397,6 +4028,12 @@ void battle_app_handle_key(bsp_btn_t btn, bsp_btn_ev_t event)
     case PAGE_SETTINGS:
         handle_settings_key(btn, event);
         break;
+    case PAGE_TIME:
+        handle_time_key(btn, event);
+        break;
+    case PAGE_COLLECTION:
+        handle_collection_key(btn, event);
+        break;
     default:
         break;
     }
@@ -3431,6 +4068,8 @@ static void app_task(void *arg)
         }
         if (s_app.page == PAGE_BATTLE) {
             tick_battle();
+        } else if (s_app.page == PAGE_TIME) {
+            tick_time_attack();
         }
         if (soc >= 0) {
             s_app.battery_soc = soc;

@@ -66,6 +66,14 @@ run_static_checks() {
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain/core \
         tests/test_anim.c main/core/anim.c -o "${test_dir}/test_anim"
     "${test_dir}/test_anim"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain/core \
+        tests/test_time_attack.c main/core/time_attack.c \
+        main/core/math_question.c -o "${test_dir}/test_time_attack"
+    "${test_dir}/test_time_attack"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain/core \
+        tests/test_progress.c main/core/progress.c \
+        -o "${test_dir}/test_progress"
+    "${test_dir}/test_progress"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
         tests/test_demo_navigation.c main/demo_navigation.c \
         -o "${test_dir}/test_demo_navigation"
