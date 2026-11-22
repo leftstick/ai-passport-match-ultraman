@@ -41,6 +41,12 @@ static const hero_def_t HEROES[CAMPAIGN_HERO_COUNT] = {
     { .name = "究极赛罗", .short_name = "究极赛罗", .perk_text = "必杀槽 +25%",
       .sprite_prefix = "ultimate-zero", .accent_color = 0xFFD166,
       .perk = HERO_PERK_GAUGE },
+    { .name = "艾克斯奥特曼", .short_name = "艾克斯", .perk_text = "暴击区 +30%",
+      .sprite_prefix = "x", .accent_color = 0x38D6FF,
+      .perk = HERO_PERK_CRIT_ZONE },
+    { .name = "佐菲奥特曼", .short_name = "佐菲", .perk_text = "必杀槽 +25%",
+      .sprite_prefix = "zoffy", .accent_color = 0xFFB347,
+      .perk = HERO_PERK_GAUGE },
 };
 
 static const stage_def_t STAGES[CAMPAIGN_STAGE_COUNT] = {
@@ -73,6 +79,22 @@ static const stage_def_t STAGES[CAMPAIGN_STAGE_COUNT] = {
       .rules = STAGE_RULE_ENRAGE, .boss = true },
 };
 
+// Monster gallery, indexed by the visual monster id used by the battle and
+// cycle planner. The first nine entries keep the original stage order.
+static const monster_def_t MONSTERS[CAMPAIGN_MONSTER_COUNT] = {
+    { .name = "巴尔坦星人", .domain = "20以内加减 · 2~5乘法", .sprite_name = "baltan" },
+    { .name = "贝姆拉", .domain = "20以内加减 · 2~5乘法", .sprite_name = "bemular" },
+    { .name = "艾雷王", .domain = "100以内加减 · 6~9乘法", .sprite_name = "eleking" },
+    { .name = "哥尔赞", .domain = "100以内加减 · 6~9乘法", .sprite_name = "golza" },
+    { .name = "哥莫拉", .domain = "退位减 · 乘除 · 填空", .sprite_name = "gomora" },
+    { .name = "金古桥", .domain = "退位减 · 乘除 · 填空", .sprite_name = "kingjoe" },
+    { .name = "雷德王", .domain = "混合两步 · 100以内加减", .sprite_name = "redking" },
+    { .name = "泰兰特", .domain = "混合两步 · 100以内加减", .sprite_name = "tyrant" },
+    { .name = "杰顿", .domain = "混合两步 · 乘除 · 填空", .sprite_name = "zetton" },
+    { .name = "布莱克王", .domain = "混合两步 · 100以内加减", .sprite_name = "blackking" },
+    { .name = "双尾怪", .domain = "退位减 · 乘除 · 填空", .sprite_name = "twintail" },
+};
+
 static const difficulty_def_t DIFFICULTIES[CAMPAIGN_DIFFICULTY_COUNT] = {
     { .name = "星光", .detail = "时间 +31.5秒 · 5颗心 · 数学 -1档", .time_bonus_ms = 31500,
       .hero_hp = 5, .monster_hp_delta = -1, .math_stage_delta = -1, .crit_window = 50 },
@@ -96,6 +118,20 @@ const stage_def_t *campaign_stage(uint8_t index)
         index = 0;
     }
     return &STAGES[index];
+}
+
+// 周目轮换只改变视觉怪兽, 名字和图鉴都按怪兽编号取, 而不是关卡编号。
+const monster_def_t *campaign_monster(uint8_t index)
+{
+    if (index >= CAMPAIGN_MONSTER_COUNT) {
+        index = 0;
+    }
+    return &MONSTERS[index];
+}
+
+const char *campaign_monster_name(uint8_t monster)
+{
+    return campaign_monster(monster)->name;
 }
 
 const difficulty_def_t *campaign_difficulty(uint8_t index)

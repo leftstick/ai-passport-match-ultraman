@@ -28,6 +28,9 @@ typedef enum {
     ANIM_HERO_ATTACK_HEAVY,
     ANIM_HERO_ATTACK_ARC,
     ANIM_ENEMY_ATTACK_CHARGE,
+    // KO 演出: 光线扫过 -> 怪兽抖动闪白 -> 碎裂淡出。BOSS 版更长更重。
+    ANIM_KO,
+    ANIM_BOSS_KO,
     ANIM_COUNT,
 } anim_id_t;
 
@@ -66,6 +69,9 @@ typedef struct {
     uint8_t monster_flash;  // 0..100
     uint8_t beam;           // 0..100, 0 = beam hidden
     uint8_t shake;          // 0..5 px
+    // 0 = fully visible, 100 = fully dissolved. Only the KO timelines raise
+    // this; every other action leaves the monster opaque.
+    uint8_t monster_fade;
 } anim_frame_t;
 
 // Sample an action timeline. elapsed_ms is clamped to duration_ms.
@@ -74,6 +80,9 @@ anim_frame_t anim_sample(anim_id_t id, uint32_t elapsed_ms, uint32_t duration_ms
 // Time inside the phase at which the hit lands. Returns 0 for actions without
 // a hit frame.
 uint32_t anim_impact_ms(anim_id_t id, uint32_t duration_ms);
+
+// KO 惨叫与最后一帧同步: 普通怪 0.75 时长, BOSS 0.8 时长。
+uint32_t anim_ko_cry_ms(anim_id_t id, uint32_t duration_ms);
 
 // Pick the next ordinary hero strike. `sequence` advances on every strike so
 // the four silhouettes rotate even when the player hits the perfect zone every

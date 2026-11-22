@@ -1,0 +1,377 @@
+#!/usr/bin/env python3
+"""Compile assets/action_config.json into a pure C action table.
+
+The device has no JSON parser and no PSRAM, so the action configuration is
+resolved at build time. Run from the repository root:
+
+    python tools/build_action_config.py
+
+Every character declares the action tags it supports. A tag that is missing
+from the declaration, or a template with no frames, resolves to ``idle`` at
+runtime so a bad edit can never produce an empty animation.
+"""
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+SOURCE = ROOT / "assets" / "action_config.json"
+OUT_C = ROOT / "main" / "core" / "action_config.c"
+OUT_H = ROOT / "main" / "core" / "action_config.h"
+
+ACTION_ORDER = [
+    "idle",
+    "ready",
+    "answerCorrect",
+    "answerWrong",
+    "combo",
+    "ultimate",
+    "victory",
+    "hurt",
+    "taunt",
+    "easterEgg",
+]
+ACTION_ENUM = {
+    "idle": "ACTION_IDLE",
+    "ready": "ACTION_READY",
+    "answerCorrect": "ACTION_ANSWER_CORRECT",
+    "answerWrong": "ACTION_ANSWER_WRONG",
+    "combo": "ACTION_COMBO",
+    "ultimate": "ACTION_ULTIMATE",
+    "victory": "ACTION_VICTORY",
+    "hurt": "ACTION_HURT",
+    "taunt": "ACTION_TAUNT",
+    "easterEgg": "ACTION_EASTER_EGG",
+}
+ACTION_LABEL = {
+    "idle": "待机",
+    "ready": "准备",
+    "answerCorrect": "答对",
+    "answerWrong": "答错",
+    "combo": "连击",
+    "ultimate": "必杀",
+    "victory": "胜利",
+    "hurt": "受击",
+    "taunt": "挑衅",
+    "easterEgg": "小彩蛋",
+}
+
+
+def fail(message: str) -> None:
+    sys.exit(f"action_config: {message}")
+
+
+def parse_sequence(raw, pose_names: list[str], label: str) -> list[tuple[int, int]]:
+    frames: list[tuple[int, int]] = []
+    for frame in raw:
+        if not isinstance(frame, list) or len(frame) != 2:
+            fail(f"{label}: frame must be [pose, durationMs]")
+        pose_name, duration = frame
+        if pose_name not in pose_names:
+            fail(f"{label}: unknown pose {pose_name!r}")
+        if not isinstance(duration, int) or not 1 <= duration <= 2000:
+            fail(f"{label}: duration out of range: {duration!r}")
+        frames.append((pose_names.index(pose_name), duration))
+    return frames
+
+
+def emit_frames(name: str, frames: list[tuple[int, int]]) -> list[str]:
+    body = ", ".join(f"{{ {pose}, {duration} }}" for pose, duration in frames)
+    return [f"static const action_frame_t {name}[] = {{ {body} }};"]
+
+
+def emit_table(prefix: str, templates: dict[str, list[tuple[int, int]]]) -> list[str]:
+    lines = [f"static const action_seq_t {prefix.upper()}_TEMPLATE[ACTION_COUNT] = {{"]
+    for action in ACTION_ORDER:
+        frames = templates[action]
+        if frames:
+            lines.append(
+                f"    [{ACTION_ENUM[action]}] = {{ {prefix}_{action}, "
+                f"{len(frames)}, {sum(frame[1] for frame in frames)} }},"
+            )
+        else:
+            lines.append(f"    [{ACTION_ENUM[action]}] = {{ NULL, 0, 0 }},")
+    lines.append("};")
+    return lines
+
+
+def main() -> int:
+    data = json.loads(SOURCE.read_text(encoding="utf-8"))
+    if data.get("version") != 1:
+        fail("unsupported version")
+
+    hero_poses = data["poseNames"]["hero"]
+    monster_poses = data["poseNames"]["monster"]
+
+    unlock = data["unlockCycle"]
+    for action in ACTION_ORDER:
+        if action not in unlock:
+            fail(f"unlockCycle is missing {action}")
+        if not 1 <= int(unlock[action]) <= 99:
+            fail(f"unlockCycle[{action}] out of range")
+
+    def build_templates(section: str, poses: list[str]):
+        table = {}
+        for action in ACTION_ORDER:
+            raw = data[section].get(action)
+            table[action] = [] if raw is None else parse_sequence(
+                raw, poses, f"{section}.{action}")
+        if not table["idle"]:
+            fail(f"{section}.idle must have at least one frame")
+        return table
+
+    hero_templates = build_templates("heroTemplates", hero_poses)
+    monster_templates = build_templates("monsterTemplates", monster_poses)
+
+    def check_characters(key: str) -> list[dict]:
+        rows = data[key]
+        for expected, row in enumerate(rows):
+            if row.get("index") != expected:
+                fail(f"{key}[{expected}] index must be {expected}")
+            if not row.get("slug") or not row.get("name"):
+                fail(f"{key}[{expected}] needs slug and name")
+            actions = row.get("actions", [])
+            if not actions:
+                fail(f"{key}[{expected}] declares no actions")
+            for action in actions:
+                if action not in ACTION_ORDER:
+                    fail(f"{key}[{expected}] unknown action {action!r}")
+        return rows
+
+    heroes = check_characters("heroes")
+    monsters = check_characters("monsters")
+
+    def support_mask(row: dict) -> int:
+        mask = 0
+        for action in row["actions"]:
+            mask |= 1 << ACTION_ORDER.index(action)
+        return mask
+
+    lines = [
+        "// Generated by tools/build_action_config.py. Do not edit by hand.",
+        "// Source: assets/action_config.json",
+        '#include "action_config.h"',
+        "",
+        "#include <stddef.h>",
+        "",
+    ]
+    for action in ACTION_ORDER:
+        if hero_templates[action]:
+            lines.extend(emit_frames(f"hero_{action}", hero_templates[action]))
+    lines.append("")
+    for action in ACTION_ORDER:
+        if monster_templates[action]:
+            lines.extend(emit_frames(f"monster_{action}", monster_templates[action]))
+    lines.append("")
+    lines.extend(emit_table("hero", hero_templates))
+    lines.append("")
+    lines.extend(emit_table("monster", monster_templates))
+    lines.append("")
+
+    lines.append(f"#define ACTION_HERO_COUNT {len(heroes)}")
+    lines.append(f"#define ACTION_MONSTER_COUNT {len(monsters)}")
+    lines.append("")
+    lines.append("static const uint16_t HERO_SUPPORT[ACTION_HERO_COUNT] = {")
+    for row in heroes:
+        lines.append(f"    0x{support_mask(row):04x}u,  // {row['index']} {row['name']}")
+    lines.append("};")
+    lines.append("")
+    lines.append("static const uint16_t MONSTER_SUPPORT[ACTION_MONSTER_COUNT] = {")
+    for row in monsters:
+        lines.append(f"    0x{support_mask(row):04x}u,  // {row['index']} {row['name']}")
+    lines.append("};")
+    lines.append("")
+    lines.extend([
+        "static const uint8_t ACTION_UNLOCK[ACTION_COUNT] = {",
+        *[f"    [{ACTION_ENUM[action]}] = {int(unlock[action])},"
+          for action in ACTION_ORDER],
+        "};",
+        "",
+        "static const uint8_t PREVIEW_ORDER[ACTION_COUNT] = {",
+        *[f"    {ACTION_ENUM[action]}," for action in ACTION_ORDER],
+        "};",
+        "",
+        "static const char *const ACTION_LABELS[ACTION_COUNT] = {",
+        *[f'    [{ACTION_ENUM[action]}] = "{ACTION_LABEL[action]}",'
+          for action in ACTION_ORDER],
+        "};",
+        "",
+        "static const action_seq_t *template_for(action_character_t kind)",
+        "{",
+        "    return kind == ACTION_CHARACTER_HERO ? HERO_TEMPLATE : MONSTER_TEMPLATE;",
+        "}",
+        "",
+        "static const uint16_t *support_for(action_character_t kind)",
+        "{",
+        "    return kind == ACTION_CHARACTER_HERO ? HERO_SUPPORT : MONSTER_SUPPORT;",
+        "}",
+        "",
+        "static uint8_t count_for(action_character_t kind)",
+        "{",
+        "    return kind == ACTION_CHARACTER_HERO ? ACTION_HERO_COUNT",
+        "                                          : ACTION_MONSTER_COUNT;",
+        "}",
+        "",
+        "uint8_t action_hero_count(void) { return ACTION_HERO_COUNT; }",
+        "uint8_t action_monster_count(void) { return ACTION_MONSTER_COUNT; }",
+        "",
+        "uint8_t action_unlock_cycle(action_id_t action)",
+        "{",
+        "    return action < ACTION_COUNT ? ACTION_UNLOCK[action] : 1;",
+        "}",
+        "",
+        "bool action_is_unlocked(action_id_t action, uint16_t cycle)",
+        "{",
+        "    if (action >= ACTION_COUNT) return false;",
+        "    if (cycle == 0) cycle = 1;",
+        "    return cycle >= ACTION_UNLOCK[action];",
+        "}",
+        "",
+        "const char *action_label(action_id_t action)",
+        "{",
+        '    return action < ACTION_COUNT ? ACTION_LABELS[action] : "";',
+        "}",
+        "",
+        "bool action_supported(action_character_t kind, uint8_t index,",
+        "                      action_id_t action)",
+        "{",
+        "    if (index >= count_for(kind) || action >= ACTION_COUNT) return false;",
+        "    return (support_for(kind)[index] & (uint16_t)(1u << action)) != 0;",
+        "}",
+        "",
+        "const action_seq_t *action_sequence(action_character_t kind, uint8_t index,",
+        "                                    action_id_t action)",
+        "{",
+        "    const action_seq_t *table = template_for(kind);",
+        "    if (index >= count_for(kind)) index = 0;",
+        "    if (action >= ACTION_COUNT) action = ACTION_IDLE;",
+        "    if (action == ACTION_IDLE) return &table[ACTION_IDLE];",
+        "    if ((support_for(kind)[index] & (uint16_t)(1u << action)) == 0 ||",
+        "        table[action].frames == NULL || table[action].count == 0) {",
+        "        return &table[ACTION_IDLE];",
+        "    }",
+        "    return &table[action];",
+        "}",
+        "",
+        "uint8_t action_preview_count(action_character_t kind, uint8_t index,",
+        "                             uint16_t cycle)",
+        "{",
+        "    uint8_t count = 0;",
+        "    for (uint8_t i = 0; i < ACTION_COUNT; i++) {",
+        "        const action_id_t action = (action_id_t)PREVIEW_ORDER[i];",
+        "        if (action_supported(kind, index, action) &&",
+        "            action_is_unlocked(action, cycle)) {",
+        "            count++;",
+        "        }",
+        "    }",
+        "    return count;",
+        "}",
+        "",
+        "action_id_t action_preview_at(action_character_t kind, uint8_t index,",
+        "                              uint16_t cycle, uint8_t ordinal)",
+        "{",
+        "    uint8_t seen = 0;",
+        "    for (uint8_t i = 0; i < ACTION_COUNT; i++) {",
+        "        const action_id_t action = (action_id_t)PREVIEW_ORDER[i];",
+        "        if (!action_supported(kind, index, action) ||",
+        "            !action_is_unlocked(action, cycle)) {",
+        "            continue;",
+        "        }",
+        "        if (seen == ordinal) return action;",
+        "        seen++;",
+        "    }",
+        "    return ACTION_IDLE;",
+        "}",
+        "",
+        "uint8_t action_easter_egg_percent(uint16_t cycle)",
+        "{",
+        f"    return cycle >= 5 ? {int(data['easterEgg']['cycle5Percent'])}",
+        f"                      : {int(data['easterEgg']['basePercent'])};",
+        "}",
+        "",
+        "uint16_t action_easter_egg_min_ms(void)",
+        "{",
+        f"    return {int(data['easterEgg']['minDelayMs'])};",
+        "}",
+        "",
+        "uint16_t action_easter_egg_max_ms(void)",
+        "{",
+        f"    return {int(data['easterEgg']['maxDelayMs'])};",
+        "}",
+        "",
+    ])
+    OUT_C.write_text("\n".join(lines), encoding="utf-8")
+
+    OUT_H.write_text(
+        """// Generated by tools/build_action_config.py. Do not edit by hand.
+// Pure C action tables: no LVGL or ESP-IDF dependencies.
+#pragma once
+
+#include <stdbool.h>
+#include <stdint.h>
+
+typedef enum {
+    ACTION_IDLE = 0,
+    ACTION_READY,
+    ACTION_ANSWER_CORRECT,
+    ACTION_ANSWER_WRONG,
+    ACTION_COMBO,
+    ACTION_ULTIMATE,
+    ACTION_VICTORY,
+    ACTION_HURT,
+    ACTION_TAUNT,
+    ACTION_EASTER_EGG,
+    ACTION_COUNT,
+} action_id_t;
+
+typedef enum {
+    ACTION_CHARACTER_HERO = 0,
+    ACTION_CHARACTER_MONSTER,
+} action_character_t;
+
+typedef struct {
+    uint8_t pose;       // matches the sprite pose enum of the character type
+    uint16_t duration_ms;
+} action_frame_t;
+
+typedef struct {
+    const action_frame_t *frames;
+    uint8_t count;
+    uint16_t total_ms;
+} action_seq_t;
+
+uint8_t action_hero_count(void);
+uint8_t action_monster_count(void);
+
+uint8_t action_unlock_cycle(action_id_t action);
+bool action_is_unlocked(action_id_t action, uint16_t cycle);
+const char *action_label(action_id_t action);
+
+// Missing or empty action -> the idle sequence, never NULL.
+bool action_supported(action_character_t kind, uint8_t index, action_id_t action);
+const action_seq_t *action_sequence(action_character_t kind, uint8_t index,
+                                    action_id_t action);
+
+// Gallery preview: unlocked, supported actions in a stable order.
+uint8_t action_preview_count(action_character_t kind, uint8_t index,
+                             uint16_t cycle);
+action_id_t action_preview_at(action_character_t kind, uint8_t index,
+                              uint16_t cycle, uint8_t ordinal);
+
+uint8_t action_easter_egg_percent(uint16_t cycle);
+uint16_t action_easter_egg_min_ms(void);
+uint16_t action_easter_egg_max_ms(void);
+""",
+        encoding="utf-8",
+    )
+
+    bindings = sum(len(row["actions"]) for row in heroes + monsters)
+    print(f"Generated {OUT_C.relative_to(ROOT)}: {len(heroes)} heroes, "
+          f"{len(monsters)} monsters, {bindings} action bindings")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

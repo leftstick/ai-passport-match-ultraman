@@ -20,7 +20,14 @@
 // Three-second count-in plus five 1.2-second beats, with a short tail after the
 // final beat so the last marker can leave the track.
 #define BATTLE_BEAM_MS 8400
-#define BATTLE_CLEAR_MS 1200
+// KO 演出: 普通怪 0.9 秒, BOSS 关 1.2 秒, 都在 0.7~1.2 秒预算内。
+#define BATTLE_CLEAR_MS 900
+#define BATTLE_BOSS_CLEAR_MS 1200
+
+// 周目挑战会替换关卡题型。取值与 cycle_style_t 对齐。
+#define BATTLE_STYLE_NORMAL 0
+#define BATTLE_STYLE_HUNDRED 1
+#define BATTLE_STYLE_MIXED 2
 
 typedef enum {
     BATTLE_PHASE_QUESTION = 0,
@@ -104,6 +111,20 @@ typedef struct {
     bool combo_finisher;
     bool low_age;
     bool current_review;
+    // 百减模式下所有新题都走 generateHundredSubQuestion, 且不注入错题。
+    bool hundred_sub;
+    // 视觉怪兽编号, 默认等于 stage; 周目轮换只影响表现与图鉴, 不改关卡规则。
+    uint8_t monster;
+    uint8_t question_style;
+    // 0 = 不限制; 2 = 累计 2 次错误直接失败.
+    uint8_t max_wrong;
+    // 100 = 原始答题时间, 80 = 极速挑战.
+    uint8_t question_time_pct;
+
+    // 答题用时统计, 用于星级、单关结算和整周目评级。
+    uint32_t answer_total_ms;
+    uint16_t fastest_answer_ms;
+    uint8_t answer_count;
 
     // Extra score percentage added to each answered question. Endless runs
     // raise it every time the player chooses to keep going.
@@ -140,8 +161,26 @@ typedef struct {
     ultimate_t ult;
 } battle_t;
 
+// 周目挑战对单场战斗的轻量变体。monster 只影响表现与图鉴。
+typedef struct {
+    uint8_t monster;
+    uint8_t question_style;
+    uint8_t max_wrong;
+    uint8_t time_pct;
+    uint8_t boss_bonus_hp;
+} battle_variant_t;
+
 void battle_start(battle_t *battle, uint8_t stage, uint8_t difficulty, uint8_t hero,
                   uint32_t seed);
+// 百减模式使用同一套战斗状态机, 只是第一题起就生成 100 减法题。
+void battle_start_mode(battle_t *battle, uint8_t stage, uint8_t difficulty,
+                       uint8_t hero, uint32_t seed, bool hundred_sub);
+// 周目战役入口: variant 为 NULL 时与 battle_start_mode 完全一致。
+void battle_start_variant(battle_t *battle, uint8_t stage, uint8_t difficulty,
+                          uint8_t hero, uint32_t seed, bool hundred_sub,
+                          const battle_variant_t *variant);
+uint32_t battle_average_answer_ms(const battle_t *battle);
+uint32_t battle_clear_ms(const battle_t *battle);
 
 battle_event_t battle_move_cursor(battle_t *battle, int delta);
 battle_event_t battle_confirm(battle_t *battle);

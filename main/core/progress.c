@@ -20,9 +20,43 @@ static const char *const BADGE_DETAILS[PROGRESS_BADGE_COUNT] = {
     "9 关全部拿到 3 星",
 };
 
+// 旧存档布局: 16 位英雄掩码。保留它只用于迁移。
+typedef struct {
+    uint16_t monsters;
+    uint16_t heroes;
+    uint16_t badges;
+    uint32_t time_best;
+} progress_v1_t;
+
 void progress_init(progress_t *progress)
 {
     memset(progress, 0, sizeof(*progress));
+}
+
+bool progress_load(progress_t *progress, const void *blob, size_t size)
+{
+    if (progress == NULL) {
+        return false;
+    }
+    if (blob == NULL || size == 0) {
+        progress_init(progress);
+        return false;
+    }
+    if (size == sizeof(progress_t)) {
+        memcpy(progress, blob, sizeof(*progress));
+        return true;
+    }
+    if (size == sizeof(progress_v1_t)) {
+        const progress_v1_t *old = (const progress_v1_t *)blob;
+        progress_init(progress);
+        progress->monsters = old->monsters;
+        progress->heroes = old->heroes;
+        progress->badges = old->badges;
+        progress->time_best = old->time_best;
+        return true;
+    }
+    progress_init(progress);
+    return false;
 }
 
 bool progress_mark_monster(progress_t *progress, uint8_t stage)
@@ -43,7 +77,7 @@ bool progress_mark_hero(progress_t *progress, uint8_t hero)
     if (hero >= PROGRESS_HERO_COUNT) {
         return false;
     }
-    const uint16_t bit = (uint16_t)(1u << hero);
+    const uint32_t bit = 1u << hero;
     if ((progress->heroes & bit) != 0) {
         return false;
     }
@@ -92,10 +126,20 @@ uint8_t progress_count16(uint16_t value)
 }
 
 
+uint8_t progress_count32(uint32_t value)
+{
+    uint8_t count = 0;
+    while (value != 0) {
+        value &= value - 1u;
+        count++;
+    }
+    return count;
+}
+
 uint8_t progress_three_star_count(uint32_t stars)
 {
     uint8_t count = 0;
-    for (uint8_t i = 0; i < PROGRESS_MONSTER_COUNT; i++) {
+    for (uint8_t i = 0; i < PROGRESS_STAGE_COUNT; i++) {
         if (((stars >> (i * 2u)) & 3u) == 3u) {
             count++;
         }

@@ -348,6 +348,52 @@ static void make_fill(math_question_t *q, math_rng_t *rng)
     }
 }
 
+// 百减模式的两个题型共用同一组数值: 减数 n 与结果 100-n。
+// 题型只决定问号放在等号右侧还是减数位置, 答案始终是 100-n。
+void buildHundredSubQuestion(math_question_t *question, int minus,
+                             hundred_sub_type_t type, math_rng_t *rng)
+{
+    if (question == NULL || rng == NULL) {
+        return;
+    }
+    if (minus < 1) {
+        minus = 1;
+    }
+    if (minus > 99) {
+        minus = 99;
+    }
+    const int answer = 100 - minus;
+    if (type == HUNDRED_SUB_TYPE_B) {
+        snprintf(question->text, sizeof(question->text), "100 - ? = %d", minus);
+        snprintf(question->hint, sizeof(question->hint), "想：100 - 结果 = 减数");
+    } else {
+        snprintf(question->text, sizeof(question->text), "100 - %d = ?", minus);
+        if (minus % 10 != 0) {
+            snprintf(question->hint, sizeof(question->hint), "个位不够减，从100借一");
+        } else {
+            snprintf(question->hint, sizeof(question->hint), "先算十位，再算个位");
+        }
+    }
+    // base_kind 用 QUESTION_SUB, 让干扰项沿用“忘退位”等既有策略,
+    // 之后再覆盖成题目类型, 便于 UI 或统计区分。
+    finish_question(question, answer, QUESTION_SUB, 100, minus, 0, rng);
+    question->kind = (uint8_t)(type == HUNDRED_SUB_TYPE_B ? QUESTION_HUNDRED_B
+                                                          : QUESTION_HUNDRED_A);
+    question->math_stage = 4;
+}
+
+void generateHundredSubQuestion(math_question_t *question, math_rng_t *rng)
+{
+    if (question == NULL || rng == NULL) {
+        return;
+    }
+    // 1..99: 排除 100-0 与 100-100 两个边界, 结果同样保持 1..99。
+    const int minus = 1 + (int)math_rng_below(rng, 99);
+    const hundred_sub_type_t type =
+        math_rng_below(rng, 2) == 0 ? HUNDRED_SUB_TYPE_A : HUNDRED_SUB_TYPE_B;
+    buildHundredSubQuestion(question, minus, type, rng);
+}
+
 static void make_mix(math_question_t *q, math_rng_t *rng)
 {
     const int a = (int)rng_range(rng, 2, 9);

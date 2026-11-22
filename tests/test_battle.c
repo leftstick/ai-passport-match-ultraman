@@ -514,7 +514,7 @@ static void test_boss_beam_five_perfect_beats(void)
            BATTLE_EV_BEAM_WIN);
     assert(b.phase == BATTLE_PHASE_CLEAR);
     assert(b.stars >= 1);
-    assert(battle_tick(&b, BATTLE_CLEAR_MS) == BATTLE_EV_STAGE_CLEAR);
+    assert(battle_tick(&b, BATTLE_BOSS_CLEAR_MS) == BATTLE_EV_STAGE_CLEAR);
 }
 
 static void test_boss_beam_lose(void)
@@ -847,6 +847,178 @@ static void test_history_avoids_repeats(void)
     }
 }
 
+static void test_hundred_sub_mode(void)
+{
+    battle_t b;
+    battle_start_mode(&b, 0, 1, 0, 1234, true);
+    assert(b.hundred_sub);
+    for (int n = 0; n < 12; n++) {
+        const math_question_t q = b.question;
+        assert(q.kind == QUESTION_HUNDRED_A || q.kind == QUESTION_HUNDRED_B);
+        assert(q.answer >= 1 && q.answer <= 99);
+        if (q.kind == QUESTION_HUNDRED_A) {
+            int minus = 0;
+            assert(sscanf(q.text, "100 - %d = ?", &minus) == 1);
+            assert(minus >= 1 && minus <= 99);
+            assert(q.answer == 100 - minus);
+        } else {
+            int result = 0;
+            assert(sscanf(q.text, "100 - ? = %d", &result) == 1);
+            assert(result >= 1 && result <= 99);
+            assert(q.answer == 100 - result);
+        }
+        b.monster_hp = 99;
+        answer_correct(&b);
+        b.crit_marker = 0;
+        b.crit_center = 99;
+        assert(battle_confirm(&b) == BATTLE_EV_CRITICAL_MISS);
+        (void)battle_tick(&b, BATTLE_ATTACK_MS);
+    }
+
+    // 原有入口保持通用题库, 不会误开百减规则。
+    battle_start(&b, 0, 1, 0, 1234);
+    assert(!b.hundred_sub);
+    assert(b.question.kind != QUESTION_HUNDRED_A);
+    assert(b.question.kind != QUESTION_HUNDRED_B);
+}
+
+static void test_variant_monster_and_timing(void)
+{
+    battle_t base;
+    battle_t variant;
+    battle_start(&base, 0, 1, 0, 4242);
+    const battle_variant_t v = {
+        .monster = 4,
+        .question_style = BATTLE_STYLE_NORMAL,
+        .max_wrong = 0,
+        .time_pct = 80,
+        .boss_bonus_hp = 0,
+    };
+    battle_start_variant(&variant, 0, 1, 0, 4242, false, &v);
+    // 视觉怪兽替换不影响关卡规则和数值。
+    assert(variant.stage == 0);
+    assert(variant.monster == 4);
+    assert(variant.monster_hp_max == base.monster_hp_max);
+    assert(variant.hero_hp_max == base.hero_hp_max);
+    assert(variant.question_time_pct == 80);
+    assert(variant.question_ms == base.question_ms * 80 / 100);
+    assert(variant.max_wrong == 0);
+    assert(!variant.hundred_sub);
+    assert(battle_clear_ms(&variant) == BATTLE_CLEAR_MS);
+}
+
+static void test_variant_hundred_style(void)
+{
+    battle_t b;
+    const battle_variant_t v = {
+        .monster = 0,
+        .question_style = BATTLE_STYLE_HUNDRED,
+        .max_wrong = 0,
+        .time_pct = 100,
+        .boss_bonus_hp = 0,
+    };
+    battle_start_variant(&b, 0, 1, 0, 5151, false, &v);
+    assert(b.question.kind == QUESTION_HUNDRED_A ||
+           b.question.kind == QUESTION_HUNDRED_B);
+    // 百减专项关不注入普通错题。
+    assert(!b.current_review);
+}
+
+static void test_variant_mixed_style_mixes(void)
+{
+    battle_t b;
+    const battle_variant_t v = {
+        .monster = 0,
+        .question_style = BATTLE_STYLE_MIXED,
+        .max_wrong = 0,
+        .time_pct = 100,
+        .boss_bonus_hp = 0,
+    };
+    battle_start_variant(&b, 0, 1, 0, 6161, false, &v);
+    b.monster_hp = 999;
+    b.monster_hp_max = 999;
+    bool saw_hundred = false;
+    bool saw_normal = false;
+    for (int n = 0; n < 24; n++) {
+        const bool hundred = b.question.kind == QUESTION_HUNDRED_A ||
+                             b.question.kind == QUESTION_HUNDRED_B;
+        saw_hundred = saw_hundred || hundred;
+        saw_normal = saw_normal || !hundred;
+        answer_correct(&b);
+        crit_hit(&b);
+        finish_attack(&b);
+    }
+    assert(saw_hundred);
+    assert(saw_normal);
+}
+
+static void test_variant_max_wrong_fails_stage(void)
+{
+    battle_t b;
+    const battle_variant_t v = {
+        .monster = 0,
+        .question_style = BATTLE_STYLE_NORMAL,
+        .max_wrong = 2,
+        .time_pct = 100,
+        .boss_bonus_hp = 0,
+    };
+    battle_start_variant(&b, 0, 1, 0, 7171, false, &v);
+    assert(b.hero_hp_max >= 2);
+    answer_wrong(&b);
+    assert(b.phase == BATTLE_PHASE_ENEMY);
+    assert(b.wrong_count == 1);
+    assert(b.hero_hp > 0);
+    (void)battle_tick(&b, BATTLE_ENEMY_MS);
+    assert(b.phase == BATTLE_PHASE_QUESTION);
+    b.cursor = b.question.correct_index == 0 ? 1 : 0;
+    // 第二次错误直接判负, 不进入格挡或敌方回合。
+    assert(battle_confirm(&b) == BATTLE_EV_HERO_DEFEATED);
+    assert(b.phase == BATTLE_PHASE_OVER);
+    assert(b.hero_hp == 0);
+    assert(b.wrong_count == 2);
+}
+
+static void test_variant_boss_bonus_hp(void)
+{
+    battle_t base;
+    battle_t variant;
+    battle_start(&base, CAMPAIGN_STAGE_COUNT - 1, 1, 0, 8181);
+    const battle_variant_t v = {
+        .monster = 0,
+        .question_style = BATTLE_STYLE_NORMAL,
+        .max_wrong = 0,
+        .time_pct = 100,
+        .boss_bonus_hp = 2,
+    };
+    battle_start_variant(&variant, CAMPAIGN_STAGE_COUNT - 1, 1, 0, 8181, false, &v);
+    assert(variant.boss);
+    assert(base.boss);
+    assert(variant.monster == 0);
+    assert(variant.monster_hp_max == base.monster_hp_max + 2);
+    assert(variant.monster_hp == variant.monster_hp_max);
+    assert(battle_clear_ms(&variant) == BATTLE_BOSS_CLEAR_MS);
+}
+
+static void test_variant_answer_stats(void)
+{
+    battle_t b;
+    const battle_variant_t v = {
+        .monster = 0,
+        .question_style = BATTLE_STYLE_NORMAL,
+        .max_wrong = 0,
+        .time_pct = 100,
+        .boss_bonus_hp = 0,
+    };
+    battle_start_variant(&b, 0, 1, 0, 9191, false, &v);
+    assert(b.answer_count == 0);
+    assert(battle_average_answer_ms(&b) == 0);
+    assert(battle_tick(&b, 1200) == BATTLE_EV_NONE);
+    answer_correct(&b);
+    assert(b.answer_count == 1);
+    assert(b.fastest_answer_ms >= 1200);
+    assert(battle_average_answer_ms(&b) == b.fastest_answer_ms);
+}
+
 int main(void)
 {
     test_start_and_question();
@@ -890,6 +1062,13 @@ int main(void)
     test_score_bonus();
     test_pause_resume();
     test_history_avoids_repeats();
+    test_hundred_sub_mode();
+    test_variant_monster_and_timing();
+    test_variant_hundred_style();
+    test_variant_mixed_style_mixes();
+    test_variant_max_wrong_fails_stage();
+    test_variant_boss_bonus_hp();
+    test_variant_answer_stats();
     puts("test_battle: PASS");
     return 0;
 }

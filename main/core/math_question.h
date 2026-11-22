@@ -22,7 +22,15 @@ typedef enum {
     QUESTION_DIV,
     QUESTION_FILL,
     QUESTION_MIX,
+    // 百减模式两种题型: typeA 求结果, typeB 求被藏起来的减数.
+    QUESTION_HUNDRED_A,
+    QUESTION_HUNDRED_B,
 } question_kind_t;
+
+typedef enum {
+    HUNDRED_SUB_TYPE_A = 0,  // 100 - n = ?
+    HUNDRED_SUB_TYPE_B,      // 100 - ? = n
+} hundred_sub_type_t;
 
 typedef struct {
     char text[MATH_QUESTION_TEXT_SIZE];
@@ -43,6 +51,17 @@ uint32_t math_rng_below(math_rng_t *rng, uint32_t bound);
 void math_question_generate(math_question_t *question, uint8_t stage, bool assist,
                             math_rng_t *rng, const math_question_t *history,
                             uint8_t history_len);
+
+// 百减模式: 被减数固定 100, 减数 n 取 1..99, 结果 100-n 也落在 1..99。
+// questionType 记录在 question->kind: QUESTION_HUNDRED_A / QUESTION_HUNDRED_B。
+// 两种题型各 50% 概率, 保证不会出现 100-0 或 100-100。
+void generateHundredSubQuestion(math_question_t *question, math_rng_t *rng);
+
+// 指定减数和题型的确定性构造, 供测试与回归样例使用。
+// typeA: "100 - n = ?" (answer 100-n)
+// typeB: "100 - ? = n" (answer 100-n)
+void buildHundredSubQuestion(math_question_t *question, int minus,
+                             hundred_sub_type_t type, math_rng_t *rng);
 
 // Exposed for tests and for UI hints that need the multiplication table phrase.
 void math_chinese_number(int value, char *out, size_t size);

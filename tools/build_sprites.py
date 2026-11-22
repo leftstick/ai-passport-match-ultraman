@@ -48,6 +48,8 @@ HEROES = [
     ("decker", "decker"),
     ("blazar", "blazar"),
     ("ultimate_zero", "ultimate-zero"),
+    ("x", "x"),
+    ("zoffy", "zoffy"),
 ]
 HERO_POSES = [
     ("idle", 1),
@@ -70,6 +72,8 @@ MONSTERS = [
     ("redking", "redking"),
     ("tyrant", "tyrant"),
     ("zetton", "zetton"),
+    ("blackking", "blackking"),
+    ("twintail", "twintail"),
 ]
 MONSTER_POSES = [
     ("idle", 1),
@@ -188,7 +192,7 @@ def main() -> None:
             "",
             "const lv_image_dsc_t *sprites_monster(uint8_t stage, uint8_t pose)",
             "{",
-            "    if (stage >= 8) stage = 0;",
+            f"    if (stage >= {len(MONSTERS)}) stage = 0;",
             "    if (pose >= 5) pose = 0;",
             "    return MONSTER_SPRITES[stage][pose];",
             "}",

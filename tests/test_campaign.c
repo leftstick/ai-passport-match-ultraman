@@ -33,6 +33,24 @@ static void test_content(void)
     assert(campaign_hero(6)->perk == HERO_PERK_SHIELD);
     assert(strcmp(campaign_hero(15)->name, "究极赛罗") == 0);
     assert(strcmp(campaign_hero(15)->sprite_prefix, "ultimate-zero") == 0);
+    assert(strcmp(campaign_hero(16)->name, "艾克斯奥特曼") == 0);
+    assert(strcmp(campaign_hero(16)->sprite_prefix, "x") == 0);
+    assert(campaign_hero(16)->perk == HERO_PERK_CRIT_ZONE);
+    assert(strcmp(campaign_hero(17)->name, "佐菲奥特曼") == 0);
+    assert(strcmp(campaign_hero(17)->sprite_prefix, "zoffy") == 0);
+    assert(campaign_hero(17)->perk == HERO_PERK_GAUGE);
+
+    for (uint8_t i = 0; i < CAMPAIGN_MONSTER_COUNT; i++) {
+        const monster_def_t *monster = campaign_monster(i);
+        assert(monster->name[0] != '\0');
+        assert(monster->domain[0] != '\0');
+        assert(monster->sprite_name[0] != '\0');
+    }
+    assert(strcmp(campaign_monster(9)->name, "布莱克王") == 0);
+    assert(strcmp(campaign_monster(9)->sprite_name, "blackking") == 0);
+    assert(strcmp(campaign_monster(10)->name, "双尾怪") == 0);
+    assert(strcmp(campaign_monster(10)->sprite_name, "twintail") == 0);
+    assert(strcmp(campaign_monster_name(10), "双尾怪") == 0);
 
     for (uint8_t i = 0; i < CAMPAIGN_STAGE_COUNT; i++) {
         const stage_def_t *stage = campaign_stage(i);
@@ -94,6 +112,7 @@ static void test_clamps(void)
 static void test_out_of_range(void)
 {
     assert(campaign_hero(99) == campaign_hero(0));
+    assert(campaign_monster(99) == campaign_monster(0));
     assert(campaign_stage(99) == campaign_stage(0));
     assert(campaign_difficulty(99) == campaign_difficulty(0));
 }

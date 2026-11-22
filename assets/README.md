@@ -66,17 +66,31 @@ Store reusable source images and generated display assets in `images/`.
 monster artwork (plus `raw/` originals). It is the editable source and is not
 compiled directly. `tools/build_sprites.py` trims each alpha bounding box,
 nearest-neighbour resizes it to 72 × 88 (heroes) or 80 × 80 (monsters), and
-writes RGB565A8 arrays to `main/assets/sprites.c`. The current roster has 16
-heroes and nine monsters, grouped in the `heroes/` and `monsters/`
+writes RGB565A8 arrays to `main/assets/sprites.c`. The current roster has 18
+heroes and eleven monsters, grouped in the `heroes/` and `monsters/`
 subdirectories. Each hero has eight action poses (idle, fight, fly, beam,
 charge, kick, guard, victory) and each monster five (idle, attack, roar,
 charge, hurt). The battle screen switches to the pose that matches the current
 phase or feedback event, so every state has its own reaction instead of a
-single static image. The 173 descriptors total 3,297,024 bytes of payload.
+single static image. The 199 descriptors total 3,793,152 bytes of payload.
+`assets/action_config.json` maps the ten gameplay actions (idle, ready,
+answerCorrect, answerWrong, combo, ultimate, victory, hurt, taunt, easterEgg)
+onto those poses and is compiled to `main/core/action_config.c` by
+`tools/build_action_config.py`. Missing actions fall back to idle.
 Those generated tables are what the firmware links;
 do not edit them by hand. `tools/prepare_hero_sources.py` rebuilds the
 512 × 512 transparent PNGs from the magenta-background originals and compresses
 oversized JPEGs under `raw/`.
+
+### Device photos
+
+[`photos/`](photos/) holds cropped real-device photos used by the project README.
+They are documentation-only and are not compiled into the firmware.
+
+| File | Dimensions and format | Use and source |
+| --- | --- | --- |
+| [`photos/device-home.jpg`](photos/device-home.jpg) | 760 × 1368, JPEG | Home screen with the hero and mode selection. User-supplied AI Passport photo, cropped to the device and resized. |
+| [`photos/device-battle.jpg`](photos/device-battle.jpg) | 760 × 1394, JPEG | Stage 6 question screen showing King Joe. User-supplied AI Passport photo, rotated upright, cropped to the device, and resized. |
 
 ## Music and sound effects
 

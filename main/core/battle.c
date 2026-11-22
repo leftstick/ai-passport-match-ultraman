@@ -32,15 +32,59 @@ static void add_gauge(battle_t *battle, uint8_t amount)
     battle->gauge = (uint8_t)next;
 }
 
+static uint32_t average_answer_ms(const battle_t *battle)
+{
+    if (battle->answer_count == 0) {
+        return 0;
+    }
+    return battle->answer_total_ms / battle->answer_count;
+}
+
+static bool answered_fast_enough(const battle_t *battle)
+{
+    if (battle->answer_count == 0) {
+        return true;
+    }
+    const uint32_t budget =
+        campaign_question_ms(battle->stage, battle->difficulty, battle->hero);
+    // 三星要求平均用时不超过本题库预算的 65%, 不再只看零错。
+    return average_answer_ms(battle) <= budget * 65u / 100u;
+}
+
 static uint8_t calc_stars(const battle_t *battle)
 {
-    if (battle->wrong_count == 0 && battle->hero_hp >= battle->hero_hp_max) {
+    if (battle->wrong_count == 0 && battle->hero_hp >= battle->hero_hp_max &&
+        answered_fast_enough(battle)) {
         return 3;
     }
     if (battle->wrong_count <= 1 && battle->hero_hp > 0) {
         return 2;
     }
     return 1;
+}
+
+uint32_t battle_clear_ms(const battle_t *battle)
+{
+    return battle != NULL && battle->boss ? BATTLE_BOSS_CLEAR_MS
+                                          : BATTLE_CLEAR_MS;
+}
+
+static void record_answer_time(battle_t *battle, int32_t used_ms)
+{
+    if (used_ms < 0) {
+        used_ms = 0;
+    }
+    if (battle->question_ms > 0 && used_ms > battle->question_ms) {
+        used_ms = battle->question_ms;
+    }
+    battle->answer_total_ms += (uint32_t)used_ms;
+    if (battle->answer_count < 255) {
+        battle->answer_count++;
+    }
+    if (battle->fastest_answer_ms == 0 ||
+        used_ms < (int32_t)battle->fastest_answer_ms) {
+        battle->fastest_answer_ms = (uint16_t)used_ms;
+    }
 }
 
 static void record_history(battle_t *battle)
@@ -63,6 +107,10 @@ static uint16_t current_question_ms(const battle_t *battle)
     }
     if (battle->last_stand_bonus) {
         ms += 1000;
+    }
+    // 周目「极速挑战」只缩短答题时间, 不影响暴击与必杀窗口。
+    if (battle->question_time_pct > 0 && battle->question_time_pct != 100) {
+        ms = ms * (int32_t)battle->question_time_pct / 100;
     }
     // The final boss gets faster below half health. This is computed from the
     // live HP so it can flip mid-stage without extra bookkeeping.
@@ -93,13 +141,26 @@ static void next_question(battle_t *battle)
     battle->phase_ms = 0;
     battle->cursor = BATTLE_CURSOR_NONE;
 
+    // 周目专项关: 百减整关都是 100 减法; 混合题型则每题随机切换。
+    bool hundred = battle->hundred_sub ||
+                   battle->question_style == BATTLE_STYLE_HUNDRED;
+    if (!hundred && battle->question_style == BATTLE_STYLE_MIXED &&
+        math_rng_below(&battle->rng, 2) == 0) {
+        hundred = true;
+    }
+
     // Wrong-answer reviews replace the 2nd and 5th question so the player has
     // settled into the round before seeing a familiar expression again.
+    // 百减题不替换成其他题型的错题。
     const bool review_slot =
-        battle->question_index == 1 || battle->question_index == 4;
+        !hundred &&
+        (battle->question_index == 1 || battle->question_index == 4);
     if (review_slot && battle->review_used < battle->review_count) {
         battle->question = battle->review[battle->review_used++];
         battle->current_review = true;
+    } else if (hundred) {
+        generateHundredSubQuestion(&battle->question, &battle->rng);
+        battle->current_review = false;
     } else {
         math_question_generate(&battle->question,
                                campaign_math_stage(battle->stage, battle->difficulty),
@@ -165,7 +226,7 @@ static battle_event_t enter_defeat_or_clear(battle_t *battle)
     battle->stars = calc_stars(battle);
     battle->score += 500 + (int32_t)battle->hero_hp * 100;
     battle->phase = BATTLE_PHASE_CLEAR;
-    battle->phase_ms = BATTLE_CLEAR_MS;
+    battle->phase_ms = (int32_t)battle_clear_ms(battle);
     battle->clear_reported = false;
     return BATTLE_EV_MONSTER_DEFEATED;
 }
@@ -232,6 +293,15 @@ static battle_event_t answer_wrong(battle_t *battle, battle_event_t event)
     battle->combo = 0;
     battle->miss_streak++;
     battle->wrong_count++;
+    record_answer_time(battle,
+                       battle->question_ms - battle->question_remaining_ms);
+
+    // 周目「错题守护」: 第二次错误直接结束本关, 不再进入格挡 QTE。
+    if (battle->max_wrong > 0 && battle->wrong_count >= battle->max_wrong) {
+        battle->hero_hp = 0;
+        battle->phase = BATTLE_PHASE_OVER;
+        return BATTLE_EV_HERO_DEFEATED;
+    }
 
     // The late-game ambush stages turn a mistake into a short block prompt
     // instead of immediate damage.
@@ -253,6 +323,20 @@ static battle_event_t answer_wrong(battle_t *battle, battle_event_t event)
 void battle_start(battle_t *battle, uint8_t stage, uint8_t difficulty, uint8_t hero,
                   uint32_t seed)
 {
+    battle_start_mode(battle, stage, difficulty, hero, seed, false);
+}
+
+void battle_start_mode(battle_t *battle, uint8_t stage, uint8_t difficulty,
+                       uint8_t hero, uint32_t seed, bool hundred_sub)
+{
+    battle_start_variant(battle, stage, difficulty, hero, seed, hundred_sub,
+                         NULL);
+}
+
+void battle_start_variant(battle_t *battle, uint8_t stage, uint8_t difficulty,
+                          uint8_t hero, uint32_t seed, bool hundred_sub,
+                          const battle_variant_t *variant)
+{
     memset(battle, 0, sizeof(*battle));
     if (stage >= CAMPAIGN_STAGE_COUNT) {
         stage = 0;
@@ -266,14 +350,44 @@ void battle_start(battle_t *battle, uint8_t stage, uint8_t difficulty, uint8_t h
     battle->stage = stage;
     battle->difficulty = difficulty;
     battle->hero = hero;
+    battle->monster = stage;
+    battle->question_time_pct = 100;
     battle->boss = campaign_stage(stage)->boss;
     battle->hero_hp_max = campaign_hero_hp(difficulty);
     battle->hero_hp = battle->hero_hp_max;
     battle->monster_hp_max = campaign_monster_hp(stage, difficulty);
     battle->monster_hp = battle->monster_hp_max;
     battle->crit_window = campaign_crit_window(difficulty, hero);
+    battle->hundred_sub = hundred_sub;
+
+    if (variant != NULL) {
+        if (variant->monster < CAMPAIGN_MONSTER_COUNT) {
+            battle->monster = variant->monster;
+        }
+        if (variant->question_style <= BATTLE_STYLE_MIXED) {
+            battle->question_style = variant->question_style;
+        }
+        battle->max_wrong = variant->max_wrong;
+        if (variant->time_pct > 0) {
+            battle->question_time_pct = variant->time_pct;
+        }
+        if (battle->boss && variant->boss_bonus_hp > 0) {
+            battle->monster_hp_max =
+                (uint16_t)(battle->monster_hp_max + variant->boss_bonus_hp);
+            battle->monster_hp = battle->monster_hp_max;
+        }
+    }
+
     math_rng_seed(&battle->rng, seed ^ (0x9E3779B9u + stage * 131u + hero * 17u));
     next_question(battle);
+}
+
+uint32_t battle_average_answer_ms(const battle_t *battle)
+{
+    if (battle == NULL || battle->answer_count == 0) {
+        return 0;
+    }
+    return battle->answer_total_ms / battle->answer_count;
 }
 
 void battle_queue_review(battle_t *battle, const math_question_t *questions,
@@ -344,6 +458,8 @@ battle_event_t battle_confirm(battle_t *battle)
             }
             battle->correct_count++;
             battle->miss_streak = 0;
+            record_answer_time(
+                battle, battle->question_ms - battle->question_remaining_ms);
             int32_t speed_bonus = 0;
             if (battle->question_ms > 0) {
                 speed_bonus = battle->question_remaining_ms *
@@ -414,7 +530,7 @@ battle_event_t battle_confirm(battle_t *battle)
                 battle->stars = calc_stars(battle);
                 battle->score += 800 + (int32_t)battle->hero_hp * 100;
                 battle->phase = BATTLE_PHASE_CLEAR;
-                battle->phase_ms = BATTLE_CLEAR_MS;
+                battle->phase_ms = (int32_t)battle_clear_ms(battle);
                 battle->clear_reported = false;
                 return BATTLE_EV_BEAM_WIN;
             }
@@ -510,7 +626,7 @@ battle_event_t battle_tick(battle_t *battle, uint32_t elapsed_ms)
             battle->stars = calc_stars(battle);
             battle->score += 800 + (int32_t)battle->hero_hp * 100;
             battle->phase = BATTLE_PHASE_CLEAR;
-            battle->phase_ms = BATTLE_CLEAR_MS;
+            battle->phase_ms = (int32_t)battle_clear_ms(battle);
             battle->clear_reported = false;
             return BATTLE_EV_BEAM_WIN;
         }

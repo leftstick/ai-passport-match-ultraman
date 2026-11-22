@@ -1,10 +1,12 @@
 idf_component_register(
     SRCS "main.c"
          "app/battle_app.c"
+         "core/action_config.c"
          "core/anim.c"
          "core/battle.c"
          "core/beam_rhythm.c"
          "core/campaign.c"
+         "core/cycle.c"
          "core/math_question.c"
          "core/progress.c"
          "core/review.c"

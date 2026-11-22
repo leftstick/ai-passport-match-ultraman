@@ -4,8 +4,11 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define CAMPAIGN_HERO_COUNT 16
+#define CAMPAIGN_HERO_COUNT 18
 #define CAMPAIGN_STAGE_COUNT 9
+// Stage count and monster count differ: cycles can draw any monster into any
+// stage, and the gallery keeps all eleven collected monsters.
+#define CAMPAIGN_MONSTER_COUNT 11
 #define CAMPAIGN_DIFFICULTY_COUNT 3
 
 // Per-stage twists. Each stage keeps at most one or two so the rule stays
@@ -48,6 +51,12 @@ typedef struct {
 
 typedef struct {
     const char *name;
+    const char *domain;
+    const char *sprite_name;
+} monster_def_t;
+
+typedef struct {
+    const char *name;
     const char *detail;
     int16_t time_bonus_ms;
     uint8_t hero_hp;
@@ -60,6 +69,8 @@ typedef struct {
 
 const hero_def_t *campaign_hero(uint8_t index);
 const stage_def_t *campaign_stage(uint8_t index);
+const monster_def_t *campaign_monster(uint8_t index);
+const char *campaign_monster_name(uint8_t monster);
 const difficulty_def_t *campaign_difficulty(uint8_t index);
 
 uint16_t campaign_question_ms(uint8_t stage, uint8_t difficulty, uint8_t hero);

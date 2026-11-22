@@ -145,6 +145,31 @@ static const anim_key_t OVER_KEYS[] = {
     {1000, 0, 8, 0, 0, ANIM_POSE_IDLE, ANIM_MONSTER_ROAR, 0, 0, 0, 0},
 };
 
+// 普通怪 KO: 0.9 s 内走完 光线扫射 -> 闪白抖动 -> 溶解离场。
+// 淡出由 monster_fade 单独计算, 这里的 pose/flash/shake 负责前半段表演。
+static const anim_key_t KO_KEYS[] = {
+    {0, 0, 0, 0, 0, ANIM_POSE_BEAM, ANIM_MONSTER_HURT, 0, 0, 0, 0},
+    {80, 0, 0, 0, 0, ANIM_POSE_BEAM, ANIM_MONSTER_HURT, 0, 0, 100, 0},
+    {150, 0, 0, -4, 0, ANIM_POSE_VICTORY, ANIM_MONSTER_HURT, 0, 100, 100, 2},
+    {230, 0, 0, 4, 0, ANIM_POSE_VICTORY, ANIM_MONSTER_HURT, 0, 100, 90, 4},
+    {320, 0, 0, -3, 0, ANIM_POSE_VICTORY, ANIM_MONSTER_HURT, 0, 60, 60, 3},
+    {450, 0, 0, 0, -4, ANIM_POSE_VICTORY, ANIM_MONSTER_HURT, 0, 20, 20, 1},
+    {650, 0, 0, 0, -6, ANIM_POSE_VICTORY, ANIM_MONSTER_HURT, 0, 0, 0, 0},
+    {1000, 0, 0, 0, 0, ANIM_POSE_VICTORY, ANIM_MONSTER_HURT, 0, 0, 0, 0},
+};
+
+// BOSS KO: 1.2 s, 更粗的光线、更长的抖动和更大的震屏, 给爆炸粒子留出时间。
+static const anim_key_t BOSS_KO_KEYS[] = {
+    {0, 0, 0, 0, 0, ANIM_POSE_BEAM, ANIM_MONSTER_HURT, 0, 0, 0, 0},
+    {100, 0, -6, 0, 0, ANIM_POSE_BEAM, ANIM_MONSTER_HURT, 0, 0, 100, 0},
+    {200, 0, -6, -8, 0, ANIM_POSE_BEAM, ANIM_MONSTER_HURT, 0, 100, 100, 3},
+    {320, 0, -6, 8, 0, ANIM_POSE_BEAM, ANIM_MONSTER_HURT, 0, 100, 100, 5},
+    {430, 0, -4, 0, 4, ANIM_POSE_VICTORY, ANIM_MONSTER_HURT, 0, 80, 80, 4},
+    {560, 0, -4, 0, -4, ANIM_POSE_VICTORY, ANIM_MONSTER_HURT, 0, 40, 40, 2},
+    {750, 0, 0, 0, -8, ANIM_POSE_VICTORY, ANIM_MONSTER_HURT, 0, 10, 0, 0},
+    {1000, 0, 0, 0, 0, ANIM_POSE_VICTORY, ANIM_MONSTER_HURT, 0, 0, 0, 0},
+};
+
 // Combo pursuit: the hero chases the knocked-back monster for a second strike.
 static const anim_key_t HERO_PURSUIT_KEYS[] = {
     {0, 0, 0, 0, 0, ANIM_POSE_FIGHT, ANIM_MONSTER_IDLE, 0, 0, 0, 0},
@@ -223,6 +248,8 @@ static const anim_def_t DEFS[ANIM_COUNT] = {
     [ANIM_ENEMY_ATTACK_CHARGE] = {ENEMY_ATTACK_CHARGE_KEYS,
                                   (uint8_t)KEY_COUNT(ENEMY_ATTACK_CHARGE_KEYS),
                                   475},
+    [ANIM_KO] = {KO_KEYS, (uint8_t)KEY_COUNT(KO_KEYS), 0},
+    [ANIM_BOSS_KO] = {BOSS_KO_KEYS, (uint8_t)KEY_COUNT(BOSS_KO_KEYS), 0},
 };
 
 // Linear interpolation, used for flash and shake where an immediate onset
@@ -257,6 +284,29 @@ static uint8_t clamp_u8(int32_t v, int32_t max)
         return (uint8_t)max;
     }
     return (uint8_t)v;
+}
+
+// KO 淡出曲线独立于关键帧: 前段保持实体, 后段快速溶解。
+static uint8_t ko_monster_fade(uint8_t id, uint32_t permille)
+{
+    uint32_t start;
+    uint32_t end;
+    if (id == ANIM_KO) {
+        start = 300;
+        end = 760;
+    } else if (id == ANIM_BOSS_KO) {
+        start = 360;
+        end = 900;
+    } else {
+        return 0;
+    }
+    if (permille <= start) {
+        return 0;
+    }
+    if (permille >= end) {
+        return 100;
+    }
+    return (uint8_t)(((permille - start) * 100u) / (end - start));
 }
 
 anim_frame_t anim_sample(anim_id_t id, uint32_t elapsed_ms, uint32_t duration_ms)
@@ -311,6 +361,7 @@ anim_frame_t anim_sample(anim_id_t id, uint32_t elapsed_ms, uint32_t duration_ms
     out.monster_flash =
         clamp_u8(lerp_i32(a->monster_flash, b->monster_flash, local, den), 100);
     out.shake = clamp_u8(lerp_i32(a->shake, b->shake, local, den), 5);
+    out.monster_fade = ko_monster_fade((uint8_t)id, p);
 
     return out;
 }
@@ -327,6 +378,17 @@ uint32_t anim_impact_ms(anim_id_t id, uint32_t duration_ms)
     // Round up so the sampled frame at this timestamp has already reached the
     // impact keyframe.
     return (uint32_t)(((uint64_t)duration_ms * def->impact_permille + 999u) / 1000u);
+}
+
+uint32_t anim_ko_cry_ms(anim_id_t id, uint32_t duration_ms)
+{
+    if (id == ANIM_BOSS_KO) {
+        return duration_ms * 8u / 10u;
+    }
+    if (id == ANIM_KO) {
+        return duration_ms * 3u / 4u;
+    }
+    return 0;
 }
 
 anim_id_t anim_hero_strike(uint8_t sequence, bool finisher, bool pursuit)

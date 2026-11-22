@@ -32,6 +32,8 @@ static const ult_def_t DEFS[CAMPAIGN_HERO_COUNT] = {
     {3, 600, 0, 76, 190, 2, 3},    // 德凯: firm three-beat beam
     {4, 460, 1, 64, 150, 1, 2},    // 布莱泽: wild alternating strikes
     {2, 760, 0, 100, 260, 3, 4},   // 究极赛罗: two armored beats
+    {2, 700, 0, 90, 230, 3, 4},    // 艾克斯: two crossing slashes
+    {3, 640, 0, 80, 190, 2, 3},    // 佐菲: steady M87 beam
 };
 
 static const ult_def_t *def_for(uint8_t hero)

@@ -225,6 +225,42 @@ static void test_sample_stays_in_range(void)
     }
 }
 
+static void test_ko_sequence_dissolves_monster(void)
+{
+    // 普通怪: 光线先亮, 怪兽闪白抖动, 后半段才淡出。
+    const anim_frame_t start = anim_sample(ANIM_KO, 0, 900);
+    assert(start.monster_fade == 0);
+    assert(start.beam == 0);
+
+    const anim_frame_t beam = anim_sample(ANIM_KO, 72, 900);
+    assert(beam.beam == 100);
+    assert(beam.monster_fade == 0);
+
+    const anim_frame_t flash = anim_sample(ANIM_KO, 207, 900);
+    assert(flash.monster_flash == 100);
+    assert(flash.monster_fade == 0);
+
+    const anim_frame_t dissolve = anim_sample(ANIM_KO, 450, 900);
+    assert(dissolve.monster_fade > 0);
+    assert(dissolve.monster_fade < 100);
+
+    const anim_frame_t end = anim_sample(ANIM_KO, 900, 900);
+    assert(end.monster_fade == 100);
+    assert(end.beam == 0);
+
+    // BOSS: 更长、更重, 同样以完全淡出收尾。
+    const anim_frame_t boss_mid = anim_sample(ANIM_BOSS_KO, 600, 1200);
+    assert(boss_mid.monster_fade > 0 && boss_mid.monster_fade < 100);
+    assert(boss_mid.monster_flash <= 100);
+    const anim_frame_t boss_end = anim_sample(ANIM_BOSS_KO, 1200, 1200);
+    assert(boss_end.monster_fade == 100);
+
+    // 惨叫卡在最后一帧附近。
+    assert(anim_ko_cry_ms(ANIM_KO, 900) == 675);
+    assert(anim_ko_cry_ms(ANIM_BOSS_KO, 1200) == 960);
+    assert(anim_ko_cry_ms(ANIM_IDLE, 900) == 0);
+}
+
 static void test_breathe_triangle(void)
 {
     assert(anim_breathe(0, 0, 2000) == 0);
@@ -251,6 +287,7 @@ int main(void)
     test_beam_and_terminal_actions();
     test_elapsed_is_clamped();
     test_sample_stays_in_range();
+    test_ko_sequence_dissolves_monster();
     test_breathe_triangle();
     puts("test_anim: PASS");
     return 0;

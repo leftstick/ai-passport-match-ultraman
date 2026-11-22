@@ -30,7 +30,7 @@ def _campaign_count(name: str) -> int:
 
 
 HERO_SPRITES = _campaign_count("CAMPAIGN_HERO_COUNT") * 8
-MONSTER_SPRITES = _campaign_count("CAMPAIGN_STAGE_COUNT") * 5
+MONSTER_SPRITES = _campaign_count("CAMPAIGN_MONSTER_COUNT") * 5
 PCM_BUDGET_SAMPLES = 200_000
 
 
@@ -60,7 +60,7 @@ def check_sprites(errors: list[str]) -> None:
     header = SPRITES_H.read_text(encoding="utf-8")
     for symbol in (
         f"HERO_SPRITES[{_campaign_count('CAMPAIGN_HERO_COUNT')}][8]",
-        f"MONSTER_SPRITES[{_campaign_count('CAMPAIGN_STAGE_COUNT')}][5]",
+        f"MONSTER_SPRITES[{_campaign_count('CAMPAIGN_MONSTER_COUNT')}][5]",
         "SPRITE_POSE_VICTORY",
         "SPRITE_MONSTER_HURT",
         "SPRITE_POSE_COUNT",
